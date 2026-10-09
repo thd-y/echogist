@@ -51,7 +51,7 @@ def test_shipped_models_toml_loads() -> None:
     cfg = load_model_config(REPO_MODELS)
     assert isinstance(cfg, ModelConfig)
     assert set(cfg.tiers) == {"economy", "balanced", "flagship"}
-    assert cfg.tiers["flagship"].model_id == "claude-opus-4-8"
+    assert cfg.tiers["flagship"].model_id == "claude-opus-5-5"
     assert cfg.tiers["balanced"].context_window == 1_000_000
     assert cfg.guard.safe_budget_fraction == 0.8
     assert cfg.asset.name == "large-v3-int8_float16"
@@ -59,8 +59,8 @@ def test_shipped_models_toml_loads() -> None:
 
 def test_safe_budget_uses_fraction() -> None:
     cfg = load_model_config(REPO_MODELS)
-    # 200K * 0.8 = 160K for the economy tier.
-    assert cfg.guard.safe_budget(cfg.tiers["economy"]) == 160_000
+    # 1M * 0.8 = 800K for the economy tier (Haiku 5.5).
+    assert cfg.guard.safe_budget(cfg.tiers["economy"]) == 800_000
 
 
 def test_tier_lookup_ok(tmp_path: Path) -> None:
@@ -133,7 +133,7 @@ def test_tier_thinking_and_effort_are_read_when_valid(tmp_path: Path) -> None:
     assert (tier.thinking, tier.effort) == ("between_tools", "high")
 
 
-@pytest.mark.parametrize(("key", "value"), [("thinking", '"disabled"'), ("effort", '"extreme"')])
+@pytest.mark.parametrize(("key", "value"), [("thinking", '"enabled"'), ("effort", '"extreme"')])
 def test_an_unknown_thinking_or_effort_is_a_config_error(
     tmp_path: Path, key: str, value: str
 ) -> None:
@@ -194,7 +194,7 @@ def test_missing_summarize_errors(tmp_path: Path) -> None:
 
 def test_shipped_summarize_config_loads() -> None:
     cfg = load_model_config(REPO_MODELS)
-    assert cfg.summarize.max_output_tokens == 12_288
+    assert cfg.summarize.max_output_tokens == 16_000
     assert "{language}" in cfg.summarize.synthesis_system_prompt
 
 
@@ -247,7 +247,8 @@ def test_tier_output_ratio_loads_and_defaults_high() -> None:
     gets it; a hand-added tier that does not is priced as the most verbose model measured,
     never as a cheap one — an under-quote is the failure that spends unagreed money."""
     cfg = load_model_config(REPO_MODELS)
-    assert cfg.tier("economy").output_per_input_ratio == 0.39  # measured, seven-lecture run
+    # Haiku 4.5's measured 0.39 x 1.3 for Haiku 5.5's longer tokenizer (TD-39, unmeasured).
+    assert cfg.tier("economy").output_per_input_ratio == 0.52
     assert cfg.tier("balanced").output_per_input_ratio < cfg.tier("economy").output_per_input_ratio
 
 

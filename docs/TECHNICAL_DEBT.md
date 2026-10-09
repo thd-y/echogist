@@ -26,18 +26,18 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   CI-red disagreement, or rebuilding the dev venv for any other reason (rebuild it on 3.11 from
   both locks then).**
 
-- **TD-39 — economy and flagship still run the previous model generation** · LOW · created
-  2026-10-10. TD-36's fix moved both summarize calls to structured outputs and `balanced` to
-  `claude-sonnet-5-5`; `economy` (`claude-haiku-4-5`, the DEFAULT tier) and `flagship`
-  (`claude-opus-4-8`) were left alone on purpose, so the format change and the model change
-  could be measured apart (/plan-eng-review D5). After that fix the move is config plus a
-  measurement: the request no longer forces a tool, which Opus 5.5 would reject. Watch the
-  per-model API differences — Opus 5.5 400s on `disabled` thinking and defaults effort to
-  `medium`; Haiku 4.5 rejects `effort` while Haiku 5.5 takes it — and re-seed each tier's
-  `output_per_input_ratio` from its own "Actual cost" line. **Start:** run
-  `scripts/replay_reconcile.py` with `--variant claude-haiku-5-5` / `claude-opus-5-5` on a saved
-  summary (reconcile and `--phase N`), about $1 a tier. **Depends on:** TD-36's structured-output
-  change being on `main`.
+- **TD-40 — economy and flagship run on 5.5 UNMEASURED** · LOW · created 2026-10-10. TD-39
+  moved them without a paid run, on the operator's call. Four numbers are therefore guesses,
+  each biased high where it can be: (1) `economy`'s `output_per_input_ratio` 0.52 is Haiku 4.5's
+  measured 0.39 x 1.3; (2) Haiku 5.5's tokenizer counts the same text ~30% longer, which the
+  local input estimate does not know, so economy's INPUT leg quotes ~30% low (cents at
+  $0.10/MTok); (3) Haiku 5.5 bills $0.50 / $2.50 for a prompt over 100K tokens — the estimate
+  always uses the low card, so a single recording long enough to push the reconcile prompt past
+  100K (~10h) is quoted ~5x low; (4) `flagship`'s 0.80 assumes Opus 5.5's always-on thinking at
+  `medium` about doubles the output, and `max_output_tokens` went 12288 -> 16000 to leave it
+  room. **Trigger:** the first real run on each tier — re-seed its ratio from the "Actual cost"
+  line (output/input, +~5%); if economy's input leg is visibly low, add a per-tier token factor.
+  A max_tokens failure on flagship means raise the cap or lower its effort.
 
 The registry was fully closed on 2026-08-03 (TD-9 and TD-17 implemented, TD-7 and TD-20 WONTFIX,
 branch `chore/close-tech-debt`); TD-22 through TD-28 are the entries since, and all of them are now
@@ -56,13 +56,19 @@ TD-27's artifact-format breaks, which is what it exists for, and none of the thr
 against v2.3.0: TD-35 was a stale constant that predates it, and TD-34 and TD-36 are pre-existing
 gaps that this run's own new `notice` lines are what made visible. All three were answered the next
 day, 2026-09-06 (`601c270`), before the next paid run: TD-34 and TD-35 closed, TD-36's first half
-with them. **Open now: TD-37, TD-38 and TD-39 (LOW)** — TD-36 closed 2026-10-10; TD-30 and TD-29b
+with them. **Open now: TD-37, TD-38 and TD-40 (LOW)** — TD-36 and TD-39 closed 2026-10-10; TD-30 and TD-29b
 closed 2026-09-06, the registry's two LOW entries answered the same day as its two HIGH ones;
 TD-29c closed 2026-09-24 and CI opened TD-37 and TD-38 the same day.
 
 ---
 
 ## Closed debts (compact — verbose history in git)
+
+- **TD-39 — economy and flagship ran the previous model generation** · LOW · closed 2026-10-10.
+  `economy` → `claude-haiku-5-5` (`thinking = "disabled"`, `effort = "high"`, like `balanced`),
+  `flagship` → `claude-opus-5-5` (`effort = "medium"`; its thinking cannot be turned off), both
+  on structured outputs since TD-36. Moved WITHOUT a paid measurement on the operator's call;
+  what that leaves unmeasured is TD-40. `thinking = "disabled"` became a valid tier value.
 
 - **TD-36 — reconcile returned PARTIAL output** · MEDIUM · closed 2026-10-10 (`dc250b3`,
   `9f4278a`). Not length, not language: under forced tool-use Sonnet wrote its own tool-call

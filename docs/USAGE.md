@@ -196,9 +196,9 @@ Re-encode to a smaller MP3**.
 
 | Tier | Модель | Контекст | Цена вход / выход за 1М токенов |
 |---|---|---|---|
-| `economy` | Haiku | 200K | $1 / $5 |
+| `economy` | Haiku | 1M | $0.10 / $0.50 (промпт до 100K токенов) |
 | `balanced` | Sonnet | 1M | $2 / $10 |
-| `flagship` | Opus | 1M | $5 / $25 |
+| `flagship` | Opus | 1M | $4 / $20 |
 
 > **Note** — модели, цены и текст промпта правятся в `config/models.toml`, без изменения кода.
 

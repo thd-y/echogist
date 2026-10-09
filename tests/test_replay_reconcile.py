@@ -37,7 +37,7 @@ def test_a_variant_overrides_only_the_parts_it_names() -> None:
     assert replay_reconcile.parse_variant("::low", _TIER).effort == "low"
 
 
-@pytest.mark.parametrize("spec", ["claude-sonnet-5-5:disabled", "claude-sonnet-5-5::extreme"])
+@pytest.mark.parametrize("spec", ["claude-sonnet-5-5:enabled", "claude-sonnet-5-5::extreme"])
 def test_a_variant_the_api_would_reject_is_refused_before_any_call(spec: str) -> None:
     with pytest.raises(ValueError, match="unknown"):
         replay_reconcile.parse_variant(spec, _TIER)

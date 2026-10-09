@@ -22,8 +22,7 @@
 # a human verifies them against the pricing page (see `prices_unverified` below).
 
 # Optional per-tier `temperature`: OMITTED here on purpose. The current Claude models
-# (Haiku 4.5 / Sonnet 5 / Opus 4.8) deprecate the temperature parameter and
-# reject the request (HTTP 400) if it is sent. Add `temperature = 0` to a tier ONLY
+# (Haiku 5.5 / Sonnet 5.5 / Opus 5.5) reject a non-default temperature (HTTP 400). Add `temperature = 0` to a tier ONLY
 # for an older model that still honors sampling and where you want a pinned title
 # (the summary filename stem) so a re-run overwrites instead of making a -2/-3 copy.
 
@@ -37,15 +36,23 @@
 # Biased high on purpose: the estimate must stay above the bill (CLAUDE.md).
 
 [tiers.economy]
-model_id = "claude-haiku-4-5"
-context_window = 200000
-price_in_per_mtok = 1.0
-price_out_per_mtok = 5.0
-# MEASURED 2026-09-04 on the operator's seven-lecture RU course, 59 calls end to end:
-# 311,829 output / 841,122 input = 0.3707, and the per-file spread was 0.365-0.376 —
-# tight enough across K=6..12 that the proportional model is clearly the right shape.
-# Seeded 5% above it; the resulting quote for that same run is 1.07x the real bill.
-output_per_input_ratio = 0.39
+# TD-39 (2026-10-10): claude-haiku-5-5, moved WITHOUT a paid measurement (operator's call).
+# Haiku 5.5 thinks by default; `disabled` (accepted at effort `high` or below) keeps it to
+# prose like Haiku 4.5 and like `balanced`. Its price has two cards: $0.10 / $0.50 for a
+# prompt of 100K tokens or fewer, $0.50 / $2.50 above — every call here is a phase
+# (~12-14K) or a reconcile (~35K on a 3h lecture), so the low card applies unless one
+# recording runs ~10h, and then the estimate is 5x low (TD-40).
+model_id = "claude-haiku-5-5"
+context_window = 1000000
+price_in_per_mtok = 0.10
+price_out_per_mtok = 0.50
+thinking = "disabled"
+effort = "high"
+# Haiku 4.5 MEASURED 0.3707 (2026-09-04, seven RU lectures, 59 calls; seeded 0.39). Haiku
+# 5.5 is UNMEASURED, and its tokenizer counts the same text ~30% longer, which the local
+# input estimate does not know: 0.39 x 1.3 = 0.52 keeps the output leg over; the input
+# leg stays ~30% low (cents at this price, TD-40). Re-seed from the first real run.
+output_per_input_ratio = 0.52
 
 [tiers.balanced]
 # TD-36 (2026-10-10): claude-sonnet-5-5, chosen by the paid replay gate on занятие 2. With
@@ -71,9 +78,9 @@ effort = "high"
 # Seeded above the +5% rule (which gives 0.31, only 1.03x) so a SINGLE file at the highest
 # ratio ever measured — 0.3171 on run 2 — is still quoted over, not under: 0.33 quotes
 # 1.07x the run-3 bill, the same margin economy carries.
-# KEPT through the 2026-10-10 move to Sonnet 5.5 (thinking off): its gate replies were no
-# longer than Sonnet 5's tool-call ones, so 0.33 should still quote over. Re-seed from the
-# first real 5.5 run's "Actual cost" line (output/input, +~5%).
+# CONFIRMED on Sonnet 5.5 (thinking off), 2026-10-10: занятие 3 alone gave 24,836 output
+# over 89,585 input = 0.2772, against 0.2828 for the same lecture on Sonnet 5 — the ratio
+# did not move with the model, so 0.33 stays and quoted $0.5288 for a $0.4275 bill.
 output_per_input_ratio = 0.33
 # scripts/check-models.py sets this true on a generation bump; a human clears it
 # after verifying the prices above against the Anthropic pricing page. While true,
@@ -83,14 +90,19 @@ output_per_input_ratio = 0.33
 prices_unverified = false
 
 [tiers.flagship]
-model_id = "claude-opus-4-8"
+# TD-39 (2026-10-10): claude-opus-5-5, moved WITHOUT a paid measurement (operator's call).
+# Opus 5.5 always thinks — `disabled` is a 400 at every effort — so effort is the only
+# lever; `medium` is its default, set explicitly. Thinking is billed as output and counts
+# toward max_output_tokens.
+model_id = "claude-opus-5-5"
 context_window = 1000000
-price_in_per_mtok = 5.0
-price_out_per_mtok = 25.0
-# NOT measured — no full run on this tier yet. Left at the shipped default (the highest
-# measured ratio plus margin), so an unknown model is priced as the most verbose one we
-# have numbers for. Re-seed from the first real Opus run's own "Actual cost" line.
-output_per_input_ratio = 0.40
+price_in_per_mtok = 4.0
+price_out_per_mtok = 20.0
+effort = "medium"
+# NOT measured on this tier, and now it thinks: 0.80 (2x the old shipped 0.40) is a guess
+# biased high so the quote stays over the bill. Re-seed from the first real Opus 5.5 run's
+# own "Actual cost" line.
+output_per_input_ratio = 0.80
 
 [guard]
 # Fraction of a tier's context window usable by one single-pass transcript+prompt.
@@ -118,7 +130,7 @@ safe_budget_fraction = 0.8
 # (that is the per-tier output_per_input_ratio above): a flush cap would
 # truncate a long multi-section RU summary into invalid JSON and waste the
 # paid call, so it carries real headroom for Cyrillic tokenization. No beta header is
-# required at this size: Haiku 4.5 / Sonnet 4.6 cap at 64K output and Opus 4.8 at 128K.
+# required at this size: every current model caps at 128K output.
 #
 # RAISED 8192 -> 12288 after the first real folder run (2026-09-04). A 2h52m RU lecture
 # on `economy` (Haiku) split at the OLD phase_target_tokens=24000 into K=3, i.e. ~57min
@@ -130,7 +142,9 @@ safe_budget_fraction = 0.8
 # is sized to absorb a ratio up to ~0.93 at the new phase size. Kept UNDER the ~16000
 # line where the summarize call would have to switch to streaming to dodge SDK timeouts;
 # going above that is a code change, not a config edit.
-max_output_tokens = 12288
+# RAISED 12288 -> 16000 with TD-39 (2026-10-10): Opus 5.5 cannot stop thinking, and its
+# thinking counts toward this cap, so a phase needs room for both. 16000 is the line above.
+max_output_tokens = 16000
 
 # The smallest reply the reconcile call can produce — the ONE fixed per-call cost in the
 # cost model, and what stops a folder of fifty short clips quoting the same as one long

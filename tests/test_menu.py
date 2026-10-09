@@ -1299,8 +1299,8 @@ def test_phase_path_still_guards_an_oversize_phase(tmp_path: Path) -> None:  # T
     # un-splittable block (plan_phases never cuts mid-block, K is clamped to len(blocks))
     # that exceeds the tier context is caught locally, before any paid call — not sent to
     # the wire to fail mid-run after partial spend.
-    _write_settings(tmp_path, model_tier="economy")  # safe_budget = 200000 * 0.8 = 160000
-    one_huge_block = "[00:00:00] " + "слово" * 60_000  # ~181K est tokens in ONE block
+    _write_settings(tmp_path, model_tier="economy")  # safe_budget = 1000000 * 0.8 = 800000
+    one_huge_block = "[00:00:00] " + "слово" * 300_000  # ~900K est tokens in ONE block
     _seed_transcript(tmp_path, text=one_huge_block)
     deps, stub, calls = _make_deps(tmp_path, ["single", "transcript", "0", "exit"])
     assert menu.run_menu(deps) == 0

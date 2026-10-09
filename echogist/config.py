@@ -152,10 +152,11 @@ class ModelTier:
     # bill. Optional so a hand-added tier still loads; the default is biased high.
     output_per_input_ratio: float = _DEFAULT_OUTPUT_PER_INPUT_RATIO
     # The request's ``thinking.type`` and ``output_config.effort``, or None to OMIT each
-    # (TD-36). Per tier because the models disagree: Sonnet 5.5 thinks adaptively unless
-    # told ``between_tools`` (its ``disabled`` is a 400, and only it accepts
-    # ``between_tools``), while Haiku 4.5 rejects ``effort`` outright. Omitted, every
-    # model keeps its own default. Config is data: both live in models.toml.
+    # (TD-36). Per tier because the models disagree on how thinking is turned off: Sonnet
+    # 5.5 takes ``between_tools`` only (its ``disabled`` is a 400), Haiku 5.5 takes
+    # ``disabled`` at effort ``high`` or below, and Opus 5.5 cannot turn it off at all —
+    # effort is its only lever. Omitted, every model keeps its own default, which on the
+    # 5.5 generation means it THINKS. Config is data: both live in models.toml.
     thinking: str | None = None
     effort: str | None = None
 
@@ -459,7 +460,7 @@ def _optional_temperature(table: dict[str, Any], where: str) -> float | None:
     return float(value)
 
 
-_THINKING_TYPES = ("adaptive", "between_tools")
+_THINKING_TYPES = ("adaptive", "between_tools", "disabled")
 _EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 

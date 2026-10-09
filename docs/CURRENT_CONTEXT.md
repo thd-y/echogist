@@ -69,8 +69,8 @@ fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; ru
 - **Cost model** projects output as `ratio x that call's input`. The input leg is near-exact over
   a whole folder (0.9987x) but runs ~1.10x on ONE file, so the output ratio carries most, not all,
   of the bias. **Re-seed a tier from its own "Actual cost" line: output/input, +~5%.** economy
-  0.39; balanced **0.33**, seeded on Sonnet 5 (run 3: 0.29513) and KEPT on 5.5 until its first
-  real run re-seeds it. **The duration projection is ~1.5x the bill**
+  0.52 and flagship 0.80 are guesses (TD-40); balanced **0.33** is measured (Sonnet 5 run 3
+  0.29513; on 5.5 one file 0.2772 vs 0.2828 on 5). **The duration projection is ~1.5x the bill**
   (it multiplies the same ratio, so it rose with it). Token estimate: 3 rates by script.
 - **Key:** env, then gitignored `config/secrets.toml` — absent in WSL, so paid runs are
   Windows-only. **`/mnt/c/Users/operator/Documents/echogist/output/` reads that tree from here, and
@@ -80,8 +80,9 @@ fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; ru
 
 1. **Structured outputs, never a forced tool (TD-36, 2026-10-10).** `balanced` =
    `claude-sonnet-5-5` at `thinking = "between_tools"`, `effort = "high"` — left unset, a model
-   THINKS (Sonnet 5 did: 2x tokens and time). Next: the first real 5.5 run re-seeds its ratio,
-   then a release; TD-39 moves economy/flagship to 5.5 via `scripts/replay_reconcile.py`.
+   THINKS (Sonnet 5 did: 2x tokens and time). First real 5.5 run (занятие 3): $0.4275 vs $0.6706
+   on 5, 3 min vs 6, +4% prose, 305/305 anchors exact. economy = Haiku 5.5 (`disabled`/`high`),
+   flagship = Opus 5.5 (`medium`, always thinks) — UNMEASURED (TD-40). Next: release v3.2.0.
 2. `win-smoke.bat` runs off `tests/fixtures/audio/smoke.mp3` (gitignored): no paid run needed.
 3. **CI runs the gate** (`ci.yml`: windows + ubuntu, 3.11, full lock), the only 3.11-on-Windows
    run (dev is 3.12/WSL); its first caught a float-sum drift and 16 posix-only tests. Streaming; 1b.
