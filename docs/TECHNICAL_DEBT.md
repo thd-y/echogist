@@ -59,6 +59,16 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   `main_skill` 1,190, 3 questions, 8 themes). What is NOT ruled out and is now the cheapest thing
   to vary: **the title is the only field whose loss repeats on the same material** — lecture 1 kept
   its title in run 3 (RU) and lost it here (EN), one lecture, two languages, two outcomes.
+  **2026-10-10, the evidence gap and the next hypothesis.** The parser reads an ABSENT key and
+  an EMPTY value identically (`.get("title", "")`) and nothing kept the raw reply, so the seven
+  documents cannot say which happened. The losses span the schema's first field to its last
+  (title, `main_skill`, `phase_headings`), and none was misplaced into another field. The tool
+  is not `strict`, and per the API docs `required` is only guaranteed under `strict: true`, so
+  the lead is now "Sonnet omits keys from a long forced call". Strict cures an absent key and
+  does nothing for an empty one, hence a measurement first: every reconcile now logs which
+  fields came back absent vs empty, and `scripts/replay_reconcile.py` replays ONLY the
+  reconcile call over a saved `.json`, N times as shipped and N times strict (~$0.13 a call
+  measured by its input; Windows). **Trigger:** that replay on занятие 2 (lost title + skill).
 
 The registry was fully closed on 2026-08-03 (TD-9 and TD-17 implemented, TD-7 and TD-20 WONTFIX,
 branch `chore/close-tech-debt`); TD-22 through TD-28 are the entries since, and all of them are now

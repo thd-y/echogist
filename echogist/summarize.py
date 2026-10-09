@@ -825,6 +825,26 @@ def _reconcile_tool_schema() -> dict[str, Any]:
     }
 
 
+def reconcile_gaps(tool_input: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """TD-36: the required emit_reconcile fields a reply left ABSENT, and those it left EMPTY.
+
+    The schema's ``required`` is a hint, not a guarantee, unless the tool is ``strict`` —
+    so a reply can omit a key outright or send it blank, and the fix differs. Empty means a
+    whitespace-only string or an empty list. Pure; ``scripts/replay_reconcile.py`` tallies
+    the same split over repeated live calls.
+    """
+    absent: list[str] = []
+    empty: list[str] = []
+    for key in _reconcile_tool_schema()["input_schema"]["required"]:
+        if key not in tool_input:
+            absent.append(key)
+            continue
+        value = tool_input[key]
+        if not (value.strip() if isinstance(value, str) else value):
+            empty.append(key)
+    return absent, empty
+
+
 # How much of the previous phase's prose to carry forward as continuity context. The
 # tail (not a model-written thread-line) is the real artifact — honest by construction —
 # and is handed forward in a SEPARATE "do not restate" prompt section so the model uses
@@ -1374,6 +1394,14 @@ def synthesize_summary(
         )
     total_in += rec.input_tokens
     total_out += rec.output_tokens
+    absent, empty = reconcile_gaps(rec.tool_input)
+    if absent or empty:
+        # TD-36: the parser below reads an ABSENT key and an EMPTY value the same way, and
+        # the two have different causes. Seven documents of evidence could not say which.
+        log(
+            f"Reconcile reply (stop_reason={rec.stop_reason or '?'}): "
+            f"absent {', '.join(absent) or 'none'}; empty {', '.join(empty) or 'none'}."
+        )
     title = str(rec.tool_input.get("title", "")).strip()
     core_idea = str(rec.tool_input.get("core_idea", "")).strip()
     main_skill = str(rec.tool_input.get("main_skill", "")).strip()

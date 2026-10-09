@@ -1006,6 +1006,42 @@ def test_an_empty_reconcile_title_is_announced_not_just_substituted() -> None:
     assert any("no title" in line for line in loud)
 
 
+def test_reconcile_gaps_tells_an_absent_field_from_an_empty_one() -> None:
+    """TD-36: seven real documents lost a field and none could say which way it was lost."""
+    absent, empty = summarize.reconcile_gaps(
+        {"core_idea": "c", "main_skill": "  ", "test_questions": [], "main_themes": ["x"]}
+    )
+    assert absent == ["title", "phase_headings"]
+    assert empty == ["main_skill", "test_questions"]
+    whole = _reconcile_ti(
+        main_skill="s", test_questions=[{}], main_themes=["x"], phase_headings=["A"]
+    )
+    assert summarize.reconcile_gaps(whole) == ([], [])
+
+
+def test_a_short_reconcile_reply_logs_which_fields_were_absent_or_empty() -> None:
+    complete = summarize._running_summary(
+        [SynthesisSection("A", "a", ()), SynthesisSection("B", "b", ())], [], [], "en"
+    )
+    lines: list[str] = []
+    summarize.synthesize_summary(
+        _two_phases(),
+        _tier(),
+        _cfg(),
+        language="en",
+        source_stem="Lecture 1",
+        api_key="k",
+        caller=_seq_caller(_outcome({"core_idea": "c", "main_skill": "", "main_themes": ["x"]})),
+        log=lines.append,
+        notice=lambda _m: None,
+        resume_from=complete,
+    )
+    detail = next(line for line in lines if line.startswith("Reconcile reply"))
+    assert "stop_reason=tool_use" in detail
+    assert "absent title, test_questions, phase_headings" in detail
+    assert "empty main_skill" in detail
+
+
 def test_an_empty_phase_fails_the_run_loud() -> None:
     """TD-34: a paid phase came back ``{"heading": "", "prose": "", "anchors": []}``.
 

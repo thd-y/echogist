@@ -78,11 +78,11 @@ fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; ru
 
 ## Next
 
-1. **TD-36 is the only debt with work in it, deferred by the operator 2026-09-06, and the size
-   hypothesis is already dead.** The 7th document (lecture 1 alone, EN) lost its title on a
-   reconcile input of ~21.5k tokens, SMALLER than all six of run 3 (25.3k-33.3k). Title-drop rate
-   3 of 7. The live lead: lecture 1 kept its title in RU and lost it in EN, same material — so the
-   next experiment varies the LANGUAGE, not the length, and it is one ~$0.80 re-summarize.
+1. **TD-36: measure absent vs empty before any fix (2026-10-10).** Size is dead (3 of 7 titles
+   lost, the smallest input among them); the lead is now that the reconcile tool is not `strict`,
+   so `required` is a hint. Reconcile logs absent/empty per field; next is the operator's Windows
+   run of `scripts/replay_reconcile.py` on занятие 2, shipped vs strict, ~$0.13 a call. Absent →
+   ship `strict: true`; empty → strict will not help, back to the prompt.
 2. `win-smoke.bat` runs off `tests/fixtures/audio/smoke.mp3` (gitignored): no paid run needed.
 3. **CI runs the gate** (`ci.yml`: windows + ubuntu, 3.11, full lock), the only 3.11-on-Windows
    run (dev is 3.12/WSL); its first caught a float-sum drift and 16 posix-only tests. Streaming; 1b.
