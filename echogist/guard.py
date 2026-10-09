@@ -149,6 +149,6 @@ def overflow_message(result: GuardResult, tier: ModelTier) -> str:
     return (
         f"This transcript is too long for the '{tier.name}' tier (estimated "
         f"{result.est_input_tokens:,} input tokens vs a safe budget of "
-        f"{result.safe_budget:,}). Choose a larger-context model in Settings. "
+        f"{result.safe_budget:,}). Split the recording into shorter parts. "
         f"Your transcript is saved."
     )

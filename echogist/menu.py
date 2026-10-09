@@ -201,14 +201,13 @@ def _oversize_phase_message(p: chunk.Phase, est: int, budget: int, tier: config.
     Reached only when a single transcript block is so large that ``plan_phases``
     (which never cuts mid-block, K clamped to len(blocks)) cannot get it under the tier's
     safe budget — not a normal long lecture, but an abnormally coarse/large block. Guides
-    the operator to the two real levers (bigger-context tier, or a finer-timecoded re-save).
+    the operator to the real lever, a finer-timecoded re-save (every tier has the same window).
     """
     return (
         f"Even split into phases, phase {p.index}/{p.total} ({p.span}) is too large "
         f"for the '{tier.name}' tier (estimated {est:,} input tokens vs a safe budget of "
         f"{budget:,}). One transcript block is abnormally large to summarize on its own — "
-        f"choose a larger-context model in Settings, or re-save the transcript with finer "
-        f"timecodes. Your transcript is saved."
+        f"re-save the transcript with finer timecodes. Your transcript is saved."
     )
 
 
