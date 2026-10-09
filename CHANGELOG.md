@@ -586,13 +586,14 @@
 - Гайд по использованию: [docs/USAGE.md](docs/USAGE.md).
 - Locked build spec: [docs/archive/ENGINEERING_PLAN.md](docs/archive/ENGINEERING_PLAN.md).
 
-[3.1.1]: https://github.com/VNQuq/echogist/releases/tag/v3.1.1
-[3.1.0]: https://github.com/VNQuq/echogist/releases/tag/v3.1.0
-[3.0.0]: https://github.com/VNQuq/echogist/releases/tag/v3.0.0
-[2.3.0]: https://github.com/VNQuq/echogist/releases/tag/v2.3.0
-[2.2.0]: https://github.com/VNQuq/echogist/releases/tag/v2.2.0
-[2.1.0]: https://github.com/VNQuq/echogist/releases/tag/v2.1.0
-[2.0.0]: https://github.com/VNQuq/echogist/releases/tag/v2.0.0
-[1.1.0]: https://github.com/VNQuq/echogist/releases/tag/v1.1.0
-[1.0.1]: https://github.com/VNQuq/echogist/releases/tag/v1.0.1
-[1.0.0]: https://github.com/VNQuq/echogist/releases/tag/v1.0.0
+[3.2.0]: https://github.com/thd-y/echogist/releases/tag/v3.2.0
+[3.1.1]: https://github.com/thd-y/echogist/releases/tag/v3.1.1
+[3.1.0]: https://github.com/thd-y/echogist/releases/tag/v3.1.0
+[3.0.0]: https://github.com/thd-y/echogist/releases/tag/v3.0.0
+[2.3.0]: https://github.com/thd-y/echogist/releases/tag/v2.3.0
+[2.2.0]: https://github.com/thd-y/echogist/releases/tag/v2.2.0
+[2.1.0]: https://github.com/thd-y/echogist/releases/tag/v2.1.0
+[2.0.0]: https://github.com/thd-y/echogist/releases/tag/v2.0.0
+[1.1.0]: https://github.com/thd-y/echogist/releases/tag/v1.1.0
+[1.0.1]: https://github.com/thd-y/echogist/releases/tag/v1.0.1
+[1.0.0]: https://github.com/thd-y/echogist/releases/tag/v1.0.0

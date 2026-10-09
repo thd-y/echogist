@@ -1,8 +1,8 @@
 # Current Context
 
-**Updated:** 2026-10-10 · TD-36 closed, `balanced` on Sonnet 5.5 (unreleased) · **v3.1.1 released** (tag `v3.1.1`), the first public version: the
-empty-phase retry offer (`b22bba7`), MIT, CI on Windows + Linux, the 3.11 token-estimate fix.
-**Published from a rewritten history** as `VNQuq/echogist`; the original is `echogist-private`.
+**Updated:** 2026-10-10 · **v3.2.0 released** (tag `v3.2.0`, `9d7644a`): structured outputs
+(TD-36 closed), every tier on the 5.5 generation (TD-39 closed). v3.1.1 was the first public one.
+**Published from a rewritten history** as `thd-y/echogist`; the original is `echogist-private`.
 3.1.0 is the answer to its own first real run — TD-34, TD-35, TD-30, TD-29b and TD-36's announce
 half, MINOR because no artifact format moved; 3.0.0 carried TD-31's and TD-27's format breaks.
 Calibration, four runs: run 1 (7 RU lectures, Haiku, **$2.4003**) seeded the cost model; run 2
@@ -82,7 +82,7 @@ fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; ru
    `claude-sonnet-5-5` at `thinking = "between_tools"`, `effort = "high"` — left unset, a model
    THINKS (Sonnet 5 did: 2x tokens and time). First real 5.5 run (занятие 3): $0.4275 vs $0.6706
    on 5, 3 min vs 6, +4% prose, 305/305 anchors exact. economy = Haiku 5.5 (`disabled`/`high`),
-   flagship = Opus 5.5 (`medium`, always thinks) — UNMEASURED (TD-40). Next: release v3.2.0.
+   flagship = Opus 5.5 (`medium`, always thinks) — UNMEASURED (TD-40). Next: their first runs.
 2. `win-smoke.bat` runs off `tests/fixtures/audio/smoke.mp3` (gitignored): no paid run needed.
 3. **CI runs the gate** (`ci.yml`: windows + ubuntu, 3.11, full lock), the only 3.11-on-Windows
    run (dev is 3.12/WSL); its first caught a float-sum drift and 16 posix-only tests. Streaming; 1b.
