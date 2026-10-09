@@ -1,6 +1,6 @@
 # Current Context
 
-**Updated:** 2026-09-25 · **v3.1.1 released** (tag `v3.1.1`), the first public version: the
+**Updated:** 2026-10-10 · TD-36 closed, `balanced` on Sonnet 5.5 (unreleased) · **v3.1.1 released** (tag `v3.1.1`), the first public version: the
 empty-phase retry offer (`b22bba7`), MIT, CI on Windows + Linux, the 3.11 token-estimate fix.
 **Published from a rewritten history** as `VNQuq/echogist`; the original is `echogist-private`.
 3.1.0 is the answer to its own first real run — TD-34, TD-35, TD-30, TD-29b and TD-36's announce
@@ -69,8 +69,8 @@ fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; ru
 - **Cost model** projects output as `ratio x that call's input`. The input leg is near-exact over
   a whole folder (0.9987x) but runs ~1.10x on ONE file, so the output ratio carries most, not all,
   of the bias. **Re-seed a tier from its own "Actual cost" line: output/input, +~5%.** economy
-  0.39; balanced **0.33 since 2026-09-06** (TD-35): run 3 gave 0.29513 over 46 calls, the 7th
-  measurement 0.29825, and 0.33 quoted 1.17x over it. **The duration projection is ~1.5x the bill**
+  0.39; balanced **0.33**, seeded on Sonnet 5 (run 3: 0.29513) and KEPT on 5.5 until its first
+  real run re-seeds it. **The duration projection is ~1.5x the bill**
   (it multiplies the same ratio, so it rose with it). Token estimate: 3 rates by script.
 - **Key:** env, then gitignored `config/secrets.toml` — absent in WSL, so paid runs are
   Windows-only. **`/mnt/c/Users/operator/Documents/echogist/output/` reads that tree from here, and
@@ -78,11 +78,10 @@ fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; ru
 
 ## Next
 
-1. **TD-36 full fix in progress (2026-10-10, plan + /plan-eng-review in `~/.claude/plans/`).**
-   Both calls now ask for structured outputs (`output_config.format`, closed schema), never a
-   forced tool; tiers gain optional `thinking`/`effort`. NEXT: the operator's paid replay gate
-   (`scripts/replay_reconcile.py`, variants Sonnet 5 / 5.5 between_tools / 5.5 adaptive-low /
-   Haiku 4.5 / Opus 4.8) decides `balanced` → `claude-sonnet-5-5` and its new ratio.
+1. **Structured outputs, never a forced tool (TD-36, 2026-10-10).** `balanced` =
+   `claude-sonnet-5-5` at `thinking = "between_tools"`, `effort = "high"` — left unset, a model
+   THINKS (Sonnet 5 did: 2x tokens and time). Next: the first real 5.5 run re-seeds its ratio,
+   then a release; TD-39 moves economy/flagship to 5.5 via `scripts/replay_reconcile.py`.
 2. `win-smoke.bat` runs off `tests/fixtures/audio/smoke.mp3` (gitignored): no paid run needed.
 3. **CI runs the gate** (`ci.yml`: windows + ubuntu, 3.11, full lock), the only 3.11-on-Windows
    run (dev is 3.12/WSL); its first caught a float-sum drift and 16 posix-only tests. Streaming; 1b.

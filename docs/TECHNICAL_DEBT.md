@@ -39,60 +39,6 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   summary (reconcile and `--phase N`), about $1 a tier. **Depends on:** TD-36's structured-output
   change being on `main`.
 
-- **TD-36 — reconcile returns PARTIAL output, and an empty essence field is announced nowhere** ·
-  MEDIUM · created 2026-09-06. Same run, 3 of 6 files lost something from the reconcile call: file 1
-  the phase-heading outline, files 2 and 6 the title, and file 2 ALSO `main_skill` (`''`). The
-  title losses were announced correctly — that is the 2026-09-05 empty-title fix working, twice —
-  and every fallback is right. The defect is the unannounced one: CLAUDE.md defines the ESSENCE
-  BLOCK as главная мысль / главный навык / 3 проверочных вопроса, and file 2 shipped with главный
-  навык blank while the run reported success. One of three load-bearing elements went out empty and
-  nothing on either channel said so. The partial-failure RATE is the second half of the entry: 1 of
-  6 titles missing on run 2, 2 of 6 plus two other losses here, so reconcile is getting less
-  reliable at this document size, not more. **Not fixed here: released as-is.** Fix has two parts,
-  and the first is cheap: route every empty essence field to `notice`, the way the empty title
-  already is. The second — why a Sonnet reconcile call drops fields on half the documents — is an
-  investigation, not a patch, and should not be guessed at from six samples. Shares TD-34's root:
-  nothing asserts a required field is non-empty. **First half CLOSED 2026-09-06 (`601c270`):**
-  every empty essence field — core idea, key skill, self-check questions — is now announced on
-  `notice`, so a blank главный навык can no longer ship under a run that reports success. It stays
-  a notice and not a failure because the K paid phases of prose are intact; only the single
-  reconcile call came back short, and re-running it is the operator's call against the saved
-  transcript. **What remains open is the second half: WHY reconcile drops fields on half the
-  documents at this size.** The rate is the evidence to collect — 1 of 6 titles on run 2, 2 of 6
-  plus two other losses on run 3 — and the announcements added here are what will make the next
-  run's rate readable without opening the `.json`. **Trigger:** the next paid folder run's notice
-  lines, then `/plan-eng-review` if the rate holds.
-  **2026-09-06, a 7th data point, and it kills the obvious hypothesis.** Lecture 1 re-summarized
-  alone (EN, from the saved transcript) lost the title again — announced correctly this time — and
-  its reconcile input was **~21,503 tokens, SMALLER than every one of run 3's six** (25,348–33,263).
-  Ordered by reconcile input, the losses now fall at 21.5k (title), 30.2k (title) and 33.3k (title
-  + `main_skill`), with 25.3k / 27.5k / 28.4k / 30.4k clean — so "reconcile drops fields when the
-  document gets long" does not survive contact with the smallest document of the seven. Title-drop
-  rate is **3 of 7**, and the essence fields are otherwise intact (`core_idea` 2,036 chars,
-  `main_skill` 1,190, 3 questions, 8 themes). What is NOT ruled out and is now the cheapest thing
-  to vary: **the title is the only field whose loss repeats on the same material** — lecture 1 kept
-  its title in run 3 (RU) and lost it here (EN), one lecture, two languages, two outcomes.
-  **2026-10-10, ROOT CAUSE: the model writes its own tool-call markup INSIDE a JSON string.**
-  Run 3's занятие 2 `core_idea` ends `…через действие.</parameter>\n<parameter
-  name="main_skill">Материал учит…` — the key skill was never lost, it was written into the
-  field before it, so the parser found it absent. The same leak hits PHASE prose: `</prose>`,
-  `</prose></invoke>`, `<parameter name="anchors">[…]`, and a bare `<anchors>…<action_items">`
-  form, in 5 of the 7 Strategy documents, printed verbatim into the PDF/MD, with the leaked
-  phases' anchors, decisions and action items missing. A replay of the reconcile call alone
-  (`scripts/replay_reconcile.py`, 3 + 3 calls, $0.69) settled the strict question: as shipped
-  every loss was an ABSENT key (11, 0 empty); under `strict: true` every one became an EMPTY
-  value (7, 0 absent) — the content already sits inside the earlier string, so strict only
-  fills the required keys with blanks. **Strict is not the fix.** **Fixed:**
-  `summarize.repair_leaked_markup` cuts every top-level string at its first tag and moves each
-  `<field>…` segment back into the field it names when the reply left that field blank (JSON
-  for arrays); it runs on every phase and reconcile reply before validation, a clean repair on
-  `log`, an undecodable one on `notice`. `scripts/repair_summaries.py` applies the same repair
-  to saved `.json` offline, validates against the transcript, and re-renders (backup kept).
-  **Still open: the TITLE.** Its three losses fall on leaking documents, but no saved string
-  carries a leaked title, so where it goes is unproven; `replay_reconcile.py --dump` keeps the
-  raw replies. **Trigger:** one dumped replay with a lost title, then the prevention question
-  (does `output_config.format` avoid the leak) if the rate stays high.
-
 The registry was fully closed on 2026-08-03 (TD-9 and TD-17 implemented, TD-7 and TD-20 WONTFIX,
 branch `chore/close-tech-debt`); TD-22 through TD-28 are the entries since, and all of them are now
 closed: TD-22, TD-25 and TD-26 on 2026-09-04, TD-23/TD-24 the day after the first full folder
@@ -110,13 +56,26 @@ TD-27's artifact-format breaks, which is what it exists for, and none of the thr
 against v2.3.0: TD-35 was a stale constant that predates it, and TD-34 and TD-36 are pre-existing
 gaps that this run's own new `notice` lines are what made visible. All three were answered the next
 day, 2026-09-06 (`601c270`), before the next paid run: TD-34 and TD-35 closed, TD-36's first half
-with them. **Open now: TD-36's second half (MEDIUM), TD-37 and TD-38 (LOW)** — TD-30 and TD-29b
+with them. **Open now: TD-37, TD-38 and TD-39 (LOW)** — TD-36 closed 2026-10-10; TD-30 and TD-29b
 closed 2026-09-06, the registry's two LOW entries answered the same day as its two HIGH ones;
 TD-29c closed 2026-09-24 and CI opened TD-37 and TD-38 the same day.
 
 ---
 
 ## Closed debts (compact — verbose history in git)
+
+- **TD-36 — reconcile returned PARTIAL output** · MEDIUM · closed 2026-10-10 (`dc250b3`,
+  `9f4278a`). Not length, not language: under forced tool-use Sonnet wrote its own tool-call
+  markup INSIDE the JSON strings (`…</parameter>\n<parameter name="main_skill">…`, `</prose>`,
+  `</invoke>`), so later fields landed inside earlier ones and parsed as absent — 5 of the 7
+  Strategy documents, phase prose included, with the markup printed into the PDF/MD. `strict:
+  true` was measured and is NOT a fix (absent keys became blank ones). **Fixed at the source:**
+  both calls ask for structured outputs (`output_config.format`, closed schema), never a forced
+  tool, and `repair_leaked_markup` stays as a defense; `scripts/repair_summaries.py` repaired the
+  five saved documents offline. The paid gate (`scripts/replay_reconcile.py`, 26 calls, ~$2.1)
+  found 0 leaks and 0 lost titles or outlines on Sonnet 5, Sonnet 5.5, Haiku 4.5 and Opus 4.8,
+  and moved `balanced` to `claude-sonnet-5-5` at `between_tools` / `high` (see models.toml).
+  The title losses were the same leak: none recurred once the format changed.
 
 - **TD-29c — no machine enforces the gate** · MINOR · closed 2026-09-24 (`99f82b3`). Its trigger
   was a second committer; publication is a second READER, and a public gate is only a claim until

@@ -46,7 +46,12 @@ from echogist.config import ModelTier  # noqa: E402
 
 # $/MTok (in, out) for a variant model no models.toml tier carries yet. Anthropic's
 # price table, 2026-10-06; used only for the y/N ceiling and the actual-cost line.
-_KNOWN_PRICES = {"claude-sonnet-5-5": (2.0, 10.0)}
+_KNOWN_PRICES = {
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-haiku-5-5": (0.10, 0.50),
+    "claude-opus-5-5": (4.0, 20.0),
+}
 
 
 def parse_variant(spec: str, tier: ModelTier) -> ModelTier:

@@ -48,10 +48,19 @@ price_out_per_mtok = 5.0
 output_per_input_ratio = 0.39
 
 [tiers.balanced]
-model_id = "claude-sonnet-5"
+# TD-36 (2026-10-10): claude-sonnet-5-5, chosen by the paid replay gate on занятие 2. With
+# structured outputs and no thinking field, Sonnet 5 started thinking (reconcile 4.0k
+# output tokens, 53 s); 5.5 at between_tools / high wrote phase prose within ~10% of Sonnet
+# 5's length (797-957 words vs 940-1029) at 2.3k reconcile tokens, 19-24 s per call, and
+# no field lost or tool markup in any reply. adaptive / low ran shorter still (545-813
+# words), a coverage risk. 5.5 rejects `thinking = "disabled"`, so `between_tools` is how
+# thinking is turned off, and it is accepted at effort `high` or below only.
+model_id = "claude-sonnet-5-5"
 context_window = 1000000
-price_in_per_mtok = 3.0
-price_out_per_mtok = 15.0
+price_in_per_mtok = 2.0
+price_out_per_mtok = 10.0
+thinking = "between_tools"
+effort = "high"
 # RE-SEEDED 2026-09-06 from the third `КУРС2025` run (6 lectures, 18h18m, 46 calls),
 # the first clean unstitched whole-course measurement on this tier: 177,367 output over
 # 600,963 input = 0.29513 aggregate, per file 0.2828-0.3008 (a 0.018 spread). Run 2's five
@@ -62,11 +71,15 @@ price_out_per_mtok = 15.0
 # Seeded above the +5% rule (which gives 0.31, only 1.03x) so a SINGLE file at the highest
 # ratio ever measured — 0.3171 on run 2 — is still quoted over, not under: 0.33 quotes
 # 1.07x the run-3 bill, the same margin economy carries.
+# KEPT through the 2026-10-10 move to Sonnet 5.5 (thinking off): its gate replies were no
+# longer than Sonnet 5's tool-call ones, so 0.33 should still quote over. Re-seed from the
+# first real 5.5 run's "Actual cost" line (output/input, +~5%).
 output_per_input_ratio = 0.33
 # scripts/check-models.py sets this true on a generation bump; a human clears it
 # after verifying the prices above against the Anthropic pricing page. While true,
 # the summarize flow prints a one-time non-blocking notice (it never blocks the run
-# or moves the gate). Verified 2026-08-03: Sonnet 5 is $3 / $15 in/out, same as 4.6.
+# or moves the gate). Verified 2026-10-10: Sonnet 5.5 is $2 / $10 in/out (Anthropic's
+# price table, 2026-10-06).
 prices_unverified = false
 
 [tiers.flagship]
