@@ -1,7 +1,7 @@
 # Current Context
 
 **Updated:** 2026-10-10 · **v3.2.0 released** (tag `v3.2.0`, `9d7644a`): structured outputs
-(TD-36 closed), every tier on the 5.5 generation (TD-39 closed). v3.1.1 was the first public one.
+(TD-36 closed), all tiers on 5.5 (TD-39 closed). `main` is ahead: see CHANGELOG `[Unreleased]`.
 **Published from a rewritten history** as `thd-y/echogist`; the original is `echogist-private`.
 3.1.0 is the answer to its own first real run — TD-34, TD-35, TD-30, TD-29b and TD-36's announce
 half, MINOR because no artifact format moved; 3.0.0 carried TD-31's and TD-27's format breaks.
