@@ -118,6 +118,33 @@ def test_negative_temperature_errors(tmp_path: Path) -> None:
         load_model_config(_write(tmp_path / "models.toml", text))
 
 
+def test_tier_thinking_and_effort_are_none_when_absent(tmp_path: Path) -> None:
+    # TD-36: absent -> the request omits both and the model keeps its own default.
+    tier = load_model_config(_write(tmp_path / "models.toml", VALID_MODELS_TOML)).tier("economy")
+    assert (tier.thinking, tier.effort) == (None, None)
+
+
+def test_tier_thinking_and_effort_are_read_when_valid(tmp_path: Path) -> None:
+    text = VALID_MODELS_TOML.replace(
+        'model_id = "claude-haiku-4-5"',
+        'model_id = "claude-haiku-4-5"\nthinking = "between_tools"\neffort = "high"',
+    )
+    tier = load_model_config(_write(tmp_path / "models.toml", text)).tier("economy")
+    assert (tier.thinking, tier.effort) == ("between_tools", "high")
+
+
+@pytest.mark.parametrize(("key", "value"), [("thinking", '"disabled"'), ("effort", '"extreme"')])
+def test_an_unknown_thinking_or_effort_is_a_config_error(
+    tmp_path: Path, key: str, value: str
+) -> None:
+    # A value the API would reject must fail at load, not as a 400 mid-run.
+    text = VALID_MODELS_TOML.replace(
+        'model_id = "claude-haiku-4-5"', f'model_id = "claude-haiku-4-5"\n{key} = {value}'
+    )
+    with pytest.raises(ConfigError, match=f"'{key}' in \\[tiers.economy\\] must be one of"):
+        load_model_config(_write(tmp_path / "models.toml", text))
+
+
 def test_prices_unverified_defaults_false(tmp_path: Path) -> None:
     cfg = load_model_config(_write(tmp_path / "models.toml", VALID_MODELS_TOML))
     assert cfg.tier("economy").prices_unverified is False

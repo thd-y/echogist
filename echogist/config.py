@@ -94,7 +94,7 @@ _DEFAULT_SYNTHESIS_SYSTEM_PROMPT = (
     "handful, not a wall), and copy them to the anchors field and each decision/action; "
     "never invent or round one. Mark any bridge beyond what the author says inline with "
     "[{interpretation}]:. Use a PRIOR CONTEXT section, if given, for continuity only — do "
-    "not restate it, but never skip points THIS phase makes. Call emit_phase exactly once."
+    "not restate it, but never skip points THIS phase makes. Reply with one JSON object."
 )
 # Reconcile step (TD-16 v2): the document-level header + the essence block, derived ONLY
 # from the already-written phase passages (it never re-reads the transcript — that would be
@@ -111,7 +111,7 @@ _DEFAULT_RECONCILE_SYSTEM_PROMPT = (
     "phase_headings — the phase headings rewritten into one coherent outline, exactly one "
     "per phase and in the SAME order — based ONLY on the passages given, adding no new "
     "facts. If two phases state contradictory things about the same point, note the "
-    "contradiction in core_idea. Call emit_reconcile exactly once."
+    "contradiction in core_idea. Reply with one JSON object."
 )
 
 
@@ -151,6 +151,13 @@ class ModelTier:
     # off the "Actual cost" line — plus a small margin, so the quote stays above the
     # bill. Optional so a hand-added tier still loads; the default is biased high.
     output_per_input_ratio: float = _DEFAULT_OUTPUT_PER_INPUT_RATIO
+    # The request's ``thinking.type`` and ``output_config.effort``, or None to OMIT each
+    # (TD-36). Per tier because the models disagree: Sonnet 5.5 thinks adaptively unless
+    # told ``between_tools`` (its ``disabled`` is a 400, and only it accepts
+    # ``between_tools``), while Haiku 4.5 rejects ``effort`` outright. Omitted, every
+    # model keeps its own default. Config is data: both live in models.toml.
+    thinking: str | None = None
+    effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -177,8 +184,8 @@ class SummarizeConfig:
     editable data per "Config is data" (CLAUDE.md). The synthesis prompt carries two
     substitution tokens replaced at call time: ``{language}`` (the target summary
     language) and ``{interpretation}`` (the per-language inline marker label). The
-    tool-use SCHEMAs (the emit_phase / emit_reconcile field contracts the parser depends
-    on) live in code, in :mod:`echogist.summarize`, so prompt and schema cannot drift.
+    reply SCHEMAs (the phase / reconcile field contracts the parser depends on) live in
+    code, in :mod:`echogist.summarize`, so prompt and schema cannot drift.
 
     ``max_output_tokens`` is the API's hard ``max_tokens`` cap. It is also the ceiling
     the cost projection clamps a call's output to (a call cannot emit more than the cap),
@@ -452,6 +459,28 @@ def _optional_temperature(table: dict[str, Any], where: str) -> float | None:
     return float(value)
 
 
+_THINKING_TYPES = ("adaptive", "between_tools")
+_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
+def _optional_choice(
+    table: dict[str, Any], key: str, where: str, choices: tuple[str, ...]
+) -> str | None:
+    """Return ``table[key]`` if it is one of ``choices``, or None if absent (TD-36).
+
+    Absent means the request omits the parameter and the model keeps its default. A value
+    outside ``choices`` is a loud ConfigError here rather than a 400 mid-run.
+    """
+    if key not in table:
+        return None
+    value = table[key]
+    if value not in choices:
+        raise ConfigError(
+            f"{_MODELS_FILENAME}: '{key}' in {where} must be one of: {', '.join(choices)}."
+        )
+    return str(value)
+
+
 def _parse_tier(name: str, table: Any) -> ModelTier:
     where = f"[tiers.{name}]"
     if not isinstance(table, dict):
@@ -477,6 +506,8 @@ def _parse_tier(name: str, table: Any) -> ModelTier:
         output_per_input_ratio=_optional_positive(
             table, "output_per_input_ratio", where, _DEFAULT_OUTPUT_PER_INPUT_RATIO
         ),
+        thinking=_optional_choice(table, "thinking", where, _THINKING_TYPES),
+        effort=_optional_choice(table, "effort", where, _EFFORT_LEVELS),
     )
 
 

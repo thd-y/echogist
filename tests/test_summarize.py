@@ -15,6 +15,7 @@ import ast
 import json
 import sys
 import types
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -48,26 +49,6 @@ def _tier() -> ModelTier:
 
 def _cfg() -> SummarizeConfig:
     return SummarizeConfig(max_output_tokens=4096)
-
-
-def _full_tool_input() -> dict[str, Any]:
-    return {
-        "title": "Состояние ИИ в 2026",
-        "overview": "A talk about where AI is heading.",
-        "key_takeaways": ["Models got cheaper.", "Local inference matters."],
-        "section_timecodes": [
-            {"timecode": "[00:00:00]", "title": "Intro"},
-            {"timecode": "[00:12:30]", "title": "Costs"},
-        ],
-        "decisions": [
-            {"decision": "Ship the local-inference path first.", "rationale": "Lower cost."},
-        ],
-        "action_items": [
-            {"task": "Benchmark int8 on the 4060.", "owner": "Pat", "estimate": "1 day"},
-        ],
-        "recurring_themes": ["efficiency", "access"],
-        "core_idea": "AI is becoming infrastructure.",
-    }
 
 
 # --------------------------------------------------------------------------- #
@@ -241,10 +222,9 @@ def test_summary_index_ignores_a_summary_with_no_back_link(tmp_path: Path) -> No
 # _default_caller — SDK adapter against a FAKE anthropic module (F2/F4/F5)
 # --------------------------------------------------------------------------- #
 class _FakeBlock:
-    def __init__(self, type: str, name: str, input: dict[str, Any]) -> None:
+    def __init__(self, type: str, text: str = "") -> None:
         self.type = type
-        self.name = name
-        self.input = input
+        self.text = text
 
 
 class _FakeUsage:
@@ -253,9 +233,12 @@ class _FakeUsage:
 
 
 class _FakeResponse:
-    def __init__(self, content: list[Any], stop_reason: str = "tool_use") -> None:
+    def __init__(
+        self, content: list[Any], stop_reason: str = "end_turn", stop_details: Any = None
+    ) -> None:
         self.content = content
         self.stop_reason = stop_reason
+        self.stop_details = stop_details
         self.usage = _FakeUsage()
 
 
@@ -329,44 +312,80 @@ def _install_fake(monkeypatch: pytest.MonkeyPatch, mod: types.ModuleType) -> Non
     monkeypatch.setitem(sys.modules, "anthropic", mod)
 
 
-def test_default_caller_success_extracts_input_and_usage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+_REPLY = {"title": "Состояние ИИ в 2026", "core_idea": "AI is becoming infrastructure."}
+
+
+def test_default_caller_parses_the_json_reply_and_usage(monkeypatch: pytest.MonkeyPatch) -> None:
     def create(**kwargs: Any) -> Any:
-        return _FakeResponse([_FakeBlock("tool_use", "emit_summary", _full_tool_input())])
+        return _FakeResponse([_FakeBlock("text", json.dumps(_REPLY, ensure_ascii=False))])
 
     _install_fake(monkeypatch, _fake_anthropic(create=create))
     out = summarize._default_caller({"model": "m"}, "sk-test")
-    assert out.tool_input["title"] == "Состояние ИИ в 2026"
-    assert out.stop_reason == "tool_use"
-    assert out.input_tokens == 1200
-    assert out.output_tokens == 350
+    assert out.fields == _REPLY
+    assert out.stop_reason == "end_turn"
+    assert (out.input_tokens, out.output_tokens) == (1200, 350)
 
 
-def test_default_caller_extracts_the_forced_reconcile_tool(
+def test_default_caller_reads_the_reply_by_block_type_not_position(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The shared caller must extract whatever tool the request forced. The reconcile
-    # request forces emit_reconcile; a hardcoded emit_phase match would skip the valid
-    # reconcile block and fail loud with a false "no tool call".
-    reconcile = {"title": "T", "core_idea": "C", "main_themes": ["a", "b"]}
-
+    # TD-36: Sonnet 5.5 thinks adaptively, so its reply can OPEN with a thinking block.
     def create(**kwargs: Any) -> Any:
-        return _FakeResponse([_FakeBlock("tool_use", "emit_reconcile", reconcile)])
+        return _FakeResponse([_FakeBlock("thinking"), _FakeBlock("text", json.dumps(_REPLY))])
 
     _install_fake(monkeypatch, _fake_anthropic(create=create))
-    request = {"model": "m", "tool_choice": {"type": "tool", "name": "emit_reconcile"}}
-    out = summarize._default_caller(request, "sk-test")
-    assert out.tool_input == reconcile
+    assert summarize._default_caller({"model": "m"}, "k").fields == _REPLY
 
 
-def test_default_caller_no_tool_block_fails_loud(monkeypatch: pytest.MonkeyPatch) -> None:
-    def create(**kwargs: Any) -> Any:
-        return _FakeResponse([_FakeBlock("text", "", {})])  # model emitted prose, no tool call
-
-    _install_fake(monkeypatch, _fake_anthropic(create=create))
+@pytest.mark.parametrize(
+    "content",
+    [
+        [_FakeBlock("thinking")],  # no text block at all
+        [_FakeBlock("text", "Here is the summary: …")],  # prose, not JSON
+        [_FakeBlock("text", "[1, 2]")],  # JSON, but not an object
+    ],
+)
+def test_default_caller_without_a_json_object_fails_loud(
+    monkeypatch: pytest.MonkeyPatch, content: list[Any]
+) -> None:
+    _install_fake(monkeypatch, _fake_anthropic(create=lambda **kw: _FakeResponse(content)))
     with pytest.raises(SummarizeError, match="did not return a structured summary"):
         summarize._default_caller({"model": "m"}, "k")
+
+
+def test_a_refusal_fails_loud_and_names_its_category(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Checked before the content is read: a declined reply carries no summary.
+    details = types.SimpleNamespace(category="general_harms")
+    _install_fake(
+        monkeypatch,
+        _fake_anthropic(create=lambda **kw: _FakeResponse([], "refusal", details)),
+    )
+    with pytest.raises(SummarizeError, match="declined.*general_harms"):
+        summarize._default_caller({"model": "m"}, "k")
+
+
+def test_a_reply_cut_off_at_max_tokens_is_not_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """/plan-eng-review A1: truncated JSON must reach the caller's cap check unparsed, so
+    the operator reads "raise max_output_tokens", not a generic parse failure."""
+    truncated = [_FakeBlock("text", '{"heading": "H", "prose": "Начало фразы, оборванн')]
+    _install_fake(
+        monkeypatch, _fake_anthropic(create=lambda **kw: _FakeResponse(truncated, "max_tokens"))
+    )
+    out = summarize._default_caller({"model": "m"}, "k")
+    assert (out.fields, out.stop_reason) == ({}, "max_tokens")
+
+
+def test_a_truncated_phase_through_the_real_caller_says_raise_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    truncated = [_FakeBlock("text", '{"heading": "H", "prose": "оборв')]
+    _install_fake(
+        monkeypatch, _fake_anthropic(create=lambda **kw: _FakeResponse(truncated, "max_tokens"))
+    )
+    with pytest.raises(SummarizeError, match="Phase 1/2 hit the output cap"):
+        summarize.synthesize_summary(
+            _two_phases(), _tier(), _cfg(), language="en", source_stem="s", api_key="k"
+        )
 
 
 def test_default_caller_missing_package_fails_loud() -> None:
@@ -492,24 +511,23 @@ def test_summarize_auto_single_phase_for_short_input() -> None:
 
 def test_summarize_auto_runs_multi_phase_synthesis() -> None:
     # TD-16 v2: summarize_auto always phase-splits and synthesizes directly. A tiny
-    # phase target forces K>1 (one phase per block), so we see several emit_phase calls
-    # plus exactly one emit_reconcile — no map-reduce, no emit_summary.
+    # phase target forces K>1 (one phase per block), so we see several phase calls
+    # plus exactly one reconcile — no map-reduce, no single-pass summary.
     calls = {"phase": 0, "reconcile": 0}
 
     def caller(request: dict[str, Any], api_key: str) -> CallOutcome:
-        name = request["tools"][0]["name"]
-        if name == "emit_reconcile":
+        if _is_reconcile(request):
             calls["reconcile"] += 1
             return CallOutcome(
-                tool_input={"title": "T", "core_idea": "c", "main_themes": []},
-                stop_reason="tool_use",
+                fields={"title": "T", "core_idea": "c", "main_themes": []},
+                stop_reason="end_turn",
                 input_tokens=1,
                 output_tokens=1,
             )
         calls["phase"] += 1
         return CallOutcome(
-            tool_input=_phase_ti(f"P{calls['phase']}", "prose"),
-            stop_reason="tool_use",
+            fields=_phase_ti(f"P{calls['phase']}", "prose"),
+            stop_reason="end_turn",
             input_tokens=1,
             output_tokens=1,
         )
@@ -542,7 +560,7 @@ def _phase_ti(
     decisions: list[dict[str, Any]] | None = None,
     action_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """An emit_phase tool_input."""
+    """A phase reply's fields."""
     return {
         "heading": heading,
         "prose": prose,
@@ -561,7 +579,7 @@ def _reconcile_ti(
     main_themes: list[str] | None = None,
     phase_headings: list[str] | None = None,
 ) -> dict[str, Any]:
-    """An emit_reconcile tool_input (header + essence block)."""
+    """A reconcile reply's fields (header + essence block)."""
     out: dict[str, Any] = {
         "title": title,
         "core_idea": core_idea,
@@ -586,10 +604,13 @@ def _seq_caller(*outcomes: CallOutcome) -> summarize.Caller:
     return caller
 
 
-def _outcome(tool_input: dict[str, Any], *, stop_reason: str = "tool_use") -> CallOutcome:
-    return CallOutcome(
-        tool_input=tool_input, stop_reason=stop_reason, input_tokens=1500, output_tokens=400
-    )
+def _is_reconcile(request: dict[str, Any]) -> bool:
+    """Which of the two calls ``request`` is: only the reconcile schema has a title."""
+    return "title" in request["output_config"]["format"]["schema"]["properties"]
+
+
+def _outcome(fields: dict[str, Any], *, stop_reason: str = "end_turn") -> CallOutcome:
+    return CallOutcome(fields=fields, stop_reason=stop_reason, input_tokens=1500, output_tokens=400)
 
 
 def _two_phases() -> list[Phase]:
@@ -753,7 +774,7 @@ def test_synthesize_single_phase_still_reconciles_for_the_essence_block() -> Non
         log=lambda _m: None,
     )
     assert len(caller.requests) == 2  # type: ignore[attr-defined]  # phase + reconcile
-    assert caller.requests[1]["tool_choice"]["name"] == "emit_reconcile"  # type: ignore[attr-defined]
+    assert _is_reconcile(caller.requests[1])  # type: ignore[attr-defined]
     assert result.summary.title == "Lone Talk"
     assert result.summary.main_skill == "Do the thing."
     assert result.summary.main_themes == ("a",)
@@ -974,7 +995,7 @@ def test_synthesize_resumes_complete_partial_runs_reconcile_only() -> None:
         resume_from=complete,
     )
     assert len(caller.requests) == 1  # type: ignore[attr-defined]  # reconcile only, no phase re-pay
-    assert caller.requests[0]["tool_choice"]["name"] == "emit_reconcile"  # type: ignore[attr-defined]
+    assert _is_reconcile(caller.requests[0])  # type: ignore[attr-defined]
     assert [s.heading for s in result.summary.synthesis] == ["A", "B"]  # resumed phases kept
     assert result.summary.title == "T"  # reconcile still produced the header
 
@@ -1037,7 +1058,7 @@ def test_a_short_reconcile_reply_logs_which_fields_were_absent_or_empty() -> Non
         resume_from=complete,
     )
     detail = next(line for line in lines if line.startswith("Reconcile reply"))
-    assert "stop_reason=tool_use" in detail
+    assert "stop_reason=end_turn" in detail
     assert "absent title, test_questions, phase_headings" in detail
     assert "empty main_skill" in detail
 
@@ -1215,7 +1236,54 @@ def test_build_synthesis_request_substitutes_language_and_interpretation() -> No
     req = summarize.build_synthesis_request(phase, _tier(), cfg, language="ru")
     assert "Russian" in req["system"]
     assert "[интерпретация]:" in req["system"]  # per-language marker label, substituted
-    assert req["tool_choice"]["name"] == "emit_phase"
+    assert req["output_config"]["format"]["schema"] == summarize._phase_schema()
+
+
+def _objects(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    found = [schema] if schema.get("type") == "object" else []
+    for prop in schema.get("properties", {}).values():
+        found += _objects(prop)
+    if isinstance(schema.get("items"), dict):
+        found += _objects(schema["items"])
+    return found
+
+
+@pytest.mark.parametrize("build", ["phase", "reconcile"])
+def test_requests_ask_for_structured_output_never_a_forced_tool(build: str) -> None:
+    """TD-36: forced tool-use leaked tool markup into the JSON strings, and the 5.5
+    generation rejects a forced ``tool_choice`` (400). Both calls use output_config.format
+    with a CLOSED schema (structured outputs need additionalProperties: false on every
+    object) and send no sampling knob the tier does not set."""
+    phase = Phase(text="[00:00:00] t", index=1, total=1, start_seconds=0.0, end_seconds=0.0)
+    req = (
+        summarize.build_synthesis_request(phase, _tier(), _cfg(), language="en")
+        if build == "phase"
+        else summarize.build_reconcile_request(
+            [SynthesisSection("H", "p", ())], _tier(), _cfg(), language="en"
+        )
+    )
+    assert "tools" not in req and "tool_choice" not in req
+    fmt = req["output_config"]["format"]
+    assert fmt["type"] == "json_schema"
+    objects = _objects(fmt["schema"])
+    assert len(objects) >= 2 and all(o["additionalProperties"] is False for o in objects)
+    assert set(fmt["schema"]["required"]) == set(fmt["schema"]["properties"])
+    assert "thinking" not in req and "effort" not in req["output_config"]
+    assert "temperature" not in req
+
+
+def test_a_tier_s_thinking_and_effort_reach_the_request() -> None:
+    tier = replace(_tier(), thinking="between_tools", effort="high", temperature=0.0)
+    phase = Phase(text="[00:00:00] t", index=1, total=1, start_seconds=0.0, end_seconds=0.0)
+    for req in (
+        summarize.build_synthesis_request(phase, tier, _cfg(), language="en"),
+        summarize.build_reconcile_request(
+            [SynthesisSection("H", "p", ())], tier, _cfg(), language="en"
+        ),
+    ):
+        assert req["thinking"] == {"type": "between_tools"}
+        assert req["output_config"]["effort"] == "high"
+        assert req["temperature"] == 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -1749,8 +1817,8 @@ def test_a_two_field_timecode_cannot_slip_past_the_validator() -> None:
 
 # TD-36: the model writes its own tool-call markup INSIDE a JSON string. Every shape below
 # was copied from a real saved summary (2026-09-05/06 runs), only shortened.
-_PHASE_SCHEMA = summarize._phase_tool_schema()["input_schema"]
-_RECONCILE_SCHEMA = summarize._reconcile_tool_schema()["input_schema"]
+_PHASE_SCHEMA = summarize._phase_schema()
+_RECONCILE_SCHEMA = summarize._reconcile_schema()
 
 
 def test_repair_moves_a_reconcile_field_back_out_of_the_one_before_it() -> None:

@@ -78,11 +78,11 @@ fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; ru
 
 ## Next
 
-1. **TD-36 root cause (2026-10-10): Sonnet writes `</parameter><parameter name="…">` INSIDE a
-   string** (phases too, 5 of 7 Strategy docs). `repair_leaked_markup` moves it back on every
-   reply; **strict is NOT the fix** (replay: it turns absent keys into blank ones). Next: the
-   operator runs `scripts/repair_summaries.py --apply` on the Windows tree; the TITLE loss is
-   still unexplained — `replay_reconcile.py --dump` keeps raw replies to find where it goes.
+1. **TD-36 full fix in progress (2026-10-10, plan + /plan-eng-review in `~/.claude/plans/`).**
+   Both calls now ask for structured outputs (`output_config.format`, closed schema), never a
+   forced tool; tiers gain optional `thinking`/`effort`. NEXT: the operator's paid replay gate
+   (`scripts/replay_reconcile.py`, variants Sonnet 5 / 5.5 between_tools / 5.5 adaptive-low /
+   Haiku 4.5 / Opus 4.8) decides `balanced` → `claude-sonnet-5-5` and its new ratio.
 2. `win-smoke.bat` runs off `tests/fixtures/audio/smoke.mp3` (gitignored): no paid run needed.
 3. **CI runs the gate** (`ci.yml`: windows + ubuntu, 3.11, full lock), the only 3.11-on-Windows
    run (dev is 3.12/WSL); its first caught a float-sum drift and 16 posix-only tests. Streaming; 1b.

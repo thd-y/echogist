@@ -58,9 +58,7 @@ def repair_summary(summary: Summary) -> tuple[Summary, list[str]]:
         "test_questions": [q.question for q in summary.test_questions],
         "main_themes": list(summary.main_themes),
     }
-    fixed, recovered, lost = summarize.repair_leaked_markup(
-        header, summarize._reconcile_tool_schema()["input_schema"]
-    )
+    fixed, recovered, lost = summarize.repair_leaked_markup(header, summarize._reconcile_schema())
     outline = fixed.get("phase_headings") if "phase_headings" in recovered else None
     if fixed != header:
         changes.append(
@@ -78,7 +76,7 @@ def repair_summary(summary: Summary) -> tuple[Summary, list[str]]:
         )
     sections = []
     decisions, actions = summary.decisions, summary.action_items
-    schema = summarize._phase_tool_schema()["input_schema"]
+    schema = summarize._phase_schema()
     for n, section in enumerate(summary.synthesis, 1):
         raw: dict[str, Any] = {
             "heading": section.heading,

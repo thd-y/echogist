@@ -26,6 +26,19 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   CI-red disagreement, or rebuilding the dev venv for any other reason (rebuild it on 3.11 from
   both locks then).**
 
+- **TD-39 — economy and flagship still run the previous model generation** · LOW · created
+  2026-10-10. TD-36's fix moved both summarize calls to structured outputs and `balanced` to
+  `claude-sonnet-5-5`; `economy` (`claude-haiku-4-5`, the DEFAULT tier) and `flagship`
+  (`claude-opus-4-8`) were left alone on purpose, so the format change and the model change
+  could be measured apart (/plan-eng-review D5). After that fix the move is config plus a
+  measurement: the request no longer forces a tool, which Opus 5.5 would reject. Watch the
+  per-model API differences — Opus 5.5 400s on `disabled` thinking and defaults effort to
+  `medium`; Haiku 4.5 rejects `effort` while Haiku 5.5 takes it — and re-seed each tier's
+  `output_per_input_ratio` from its own "Actual cost" line. **Start:** run
+  `scripts/replay_reconcile.py` with `--variant claude-haiku-5-5` / `claude-opus-5-5` on a saved
+  summary (reconcile and `--phase N`), about $1 a tier. **Depends on:** TD-36's structured-output
+  change being on `main`.
+
 - **TD-36 — reconcile returns PARTIAL output, and an empty essence field is announced nowhere** ·
   MEDIUM · created 2026-09-06. Same run, 3 of 6 files lost something from the reconcile call: file 1
   the phase-heading outline, files 2 and 6 the title, and file 2 ALSO `main_skill` (`''`). The

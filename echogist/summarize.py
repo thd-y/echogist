@@ -13,14 +13,17 @@ and no ``anthropic`` installed:
   (:func:`_synthesis_section`, F10 title fallback) + the F13 artifact save
   (:func:`save_raw_result`). Total functions over plain dicts/values.
 * **The network adapter** — :func:`_default_caller` lazily imports ``anthropic``,
-  makes the forced **tool-use** call, maps the SDK's errors to a recoverable
+  makes the **structured-output** call, maps the SDK's errors to a recoverable
   :class:`SummarizeError` (F2/F4/F5), and hands back a plain :class:`CallOutcome`.
   Injected via the ``caller`` seam, so CI drives success/failure/truncation with a
   stub. The module imports clean offline — ``anthropic`` is never imported at top.
 
-**Structured output = forced tool-use (not prose-JSON).** The model is forced to call
-one tool whose ``input_schema`` IS the phase contract, so we get schema-shaped JSON on a
-paid call instead of parsing free text. The prompt TEXT is config data
+**Structured output = ``output_config.format`` (not forced tool-use, not prose-JSON).**
+The request carries a closed JSON Schema that IS the phase contract, and the reply's text
+block is JSON that matches it, so a paid call never needs free text parsed. TD-36 moved
+off forced tool-use: Sonnet wrote its own tool-call markup INSIDE the JSON strings
+(``</parameter><parameter name="main_skill">``), so fields landed inside each other, and
+the 5.5 generation rejects a forced ``tool_choice`` outright. The prompt TEXT is config data
 (:attr:`SummarizeConfig.synthesis_system_prompt`); the SCHEMA is code, here, so the two
 cannot drift (operator decision 2026-06-15: "prompt = data, schema = code").
 
@@ -30,7 +33,7 @@ value itself lives in models.toml, which carries the sizing rationale). The cost
 projection is separate: it clamps a call's projected output to this cap but never
 uses it as the projection (see :func:`echogist.cost.estimate_cost_synthesis`). A reply that
 still hits the cap (``stop_reason == "max_tokens"``) yields
-truncated, invalid tool JSON, so it is caught and surfaced (the operator raises the
+truncated, invalid JSON, so it is caught and surfaced (the operator raises the
 cap in models.toml) rather than parsed into a half-summary.
 
 **F13 ordering.** :func:`save_raw_result` persists the raw structured result as
@@ -70,10 +73,6 @@ Notice = Callable[[str], object]
 # validation already restricts the code to these; an unknown code falls back to
 # itself so a hand-edited settings file never crashes the stage.
 _LANGUAGE_NAMES = {"ru": "Russian", "en": "English"}
-
-# TD-16 v2 direct synthesis tool names: one phase pass + one document-header reconcile.
-_PHASE_TOOL_NAME = "emit_phase"
-_RECONCILE_TOOL_NAME = "emit_reconcile"
 
 # The per-language label for the inline [interpretation]: marker (TD-16 v2): substituted
 # into the synthesis prompt's {interpretation} token exactly like {unassigned}. The model
@@ -245,7 +244,7 @@ class Summary:
     # TD-22 back-link, TD-31 identity: the FINGERPRINT of the recording this summary was
     # made from, so a later run can ask "is this already summarized" and skip work already
     # paid for. Content, not a path — the join then survives a tree move, a rename, and a
-    # WSL-vs-Windows read of the same disk. NOT an LLM field; the tool schema never sets
+    # WSL-vs-Windows read of the same disk. NOT an LLM field; the reply schema never sets
     # it, :func:`save_raw_result` stamps it at save time. Empty reads as "unknown source",
     # never as "no summary exists".
     source_fingerprint: str = ""
@@ -255,12 +254,13 @@ class Summary:
 class CallOutcome:
     """What the ``caller`` seam returns: the SDK details, normalized to plain data.
 
-    ``tool_input`` is the forced tool's JSON input (the raw summary fields);
+    ``fields`` is the reply's JSON object (the raw summary fields; empty when the reply
+    was cut off at ``max_tokens``, so the caller's cap message is the one shown);
     ``stop_reason`` lets the pure half catch a truncated reply; the token counts
     are the audited usage for cost (T8).
     """
 
-    tool_input: dict[str, Any]
+    fields: dict[str, Any]
     stop_reason: str
     input_tokens: int
     output_tokens: int
@@ -312,7 +312,7 @@ def _decisions(value: Any) -> tuple[Decision, ...]:
                 decision=decision,
                 rationale=str(item.get("rationale", "")).strip(),
                 # Optional (TD-16 v2): the old emit_summary schema has no anchor key, so
-                # this is "" there; the v2 emit_phase schema supplies it.
+                # this is "" there; the v2 phase schema supplies it.
                 anchor=str(item.get("anchor", "")).strip(),
             )
         )
@@ -473,26 +473,26 @@ def write_summary_json(summary: Summary, path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # The network call (lazy anthropic import; covered by stub-driven unit tests)
 # --------------------------------------------------------------------------- #
-def _extract_tool_input(content: Any, tool_name: str = "") -> dict[str, Any]:
-    """Pull the forced tool's input out of the SDK response content blocks.
+def _extract_json(content: Any) -> dict[str, Any]:
+    """The reply's JSON object: the first ``text`` block, parsed (structured outputs).
 
-    ``tool_name`` is the tool the request forced via ``tool_choice``: the synthesis
-    path forces ``emit_phase``, the reconcile path forces ``emit_reconcile``. The caller
-    is SHARED across both, so we match the block by the forced name rather than a
-    hardcoded one — otherwise a valid reconcile tool_use is skipped and the step fails
-    loud with a false "no tool call". An empty ``tool_name`` accepts the first tool_use
-    block.
+    Read by block TYPE, never position: a model that thinks (Sonnet 5.5 adaptive) puts a
+    ``thinking`` block first. A reply with no text block, or text that is not a JSON
+    object, fails loud — ``output_config.format`` should make that impossible, so seeing
+    it means the call went wrong, not that the summary is empty.
     """
     for block in content or ():
-        if getattr(block, "type", None) != "tool_use":
+        if getattr(block, "type", None) != "text":
             continue
-        if tool_name and getattr(block, "name", "") != tool_name:
-            continue
-        tool_input = getattr(block, "input", None)
-        if isinstance(tool_input, dict):
-            return tool_input
+        try:
+            fields = json.loads(getattr(block, "text", "") or "")
+        except json.JSONDecodeError:
+            break
+        if isinstance(fields, dict):
+            return fields
+        break
     raise SummarizeError(
-        "The model did not return a structured summary (no tool call). "
+        "The model did not return a structured summary. "
         "Your transcript is saved — retry, or pick another model in Settings."
     )
 
@@ -567,12 +567,22 @@ def _default_caller(request: dict[str, Any], api_key: str) -> CallOutcome:
             f"The summarization call failed: {exc}. Your transcript is saved — retry from it."
         ) from exc
 
-    tool_choice = request.get("tool_choice")
-    forced_tool = str(tool_choice.get("name", "") or "") if isinstance(tool_choice, dict) else ""
+    stop_reason = str(getattr(response, "stop_reason", "") or "")
+    if stop_reason == "refusal":
+        # Checked before the content is read: a declined reply carries no summary. It is
+        # loud and costs this file only — every phase before it is already on disk.
+        details = getattr(response, "stop_details", None)
+        category = getattr(details, "category", None) or "unspecified"
+        raise SummarizeError(
+            f"The model declined to summarize this part (refusal, category: {category}). "
+            "Your transcript is saved — retry, or pick another model in Settings."
+        )
     usage = response.usage
     return CallOutcome(
-        tool_input=_extract_tool_input(response.content, forced_tool),
-        stop_reason=str(getattr(response, "stop_reason", "") or ""),
+        # A reply cut off at max_tokens is truncated JSON: hand back no fields, so the
+        # caller's "raise max_output_tokens" message is the one the operator sees.
+        fields={} if stop_reason == "max_tokens" else _extract_json(response.content),
+        stop_reason=stop_reason,
         input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
         output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
     )
@@ -648,8 +658,8 @@ def _interpretation_label(code: str) -> str:
     return _INTERPRETATION_LABELS.get(code, "interpretation")
 
 
-def _phase_tool_schema() -> dict[str, Any]:
-    """The forced emit_phase tool: one phase's heading, prose, anchors, decisions, actions."""
+def _phase_schema() -> dict[str, Any]:
+    """The phase reply's JSON Schema: heading, prose, anchors, decisions, actions."""
     string = {"type": "string"}
     anchor_array = {
         "type": "array",
@@ -659,10 +669,8 @@ def _phase_tool_schema() -> dict[str, Any]:
             "anchor this content. Copy only real ones; omit rather than invent."
         ),
     }
-    return {
-        "name": _PHASE_TOOL_NAME,
-        "description": "Return the faithful synthesis of THIS phase of the transcript.",
-        "input_schema": {
+    return _closed(
+        {
             "type": "object",
             "properties": {
                 "heading": {
@@ -732,19 +740,14 @@ def _phase_tool_schema() -> dict[str, Any]:
                 },
             },
             "required": ["heading", "prose", "anchors", "decisions", "action_items"],
-        },
-    }
+        }
+    )
 
 
-def _reconcile_tool_schema() -> dict[str, Any]:
-    """The forced emit_reconcile tool: the document header + essence block over the phases."""
-    return {
-        "name": _RECONCILE_TOOL_NAME,
-        "description": (
-            "Return the document title, the essence block (core idea, key skill, "
-            "self-check questions with answers), and the main themes over the phases."
-        ),
-        "input_schema": {
+def _reconcile_schema() -> dict[str, Any]:
+    """The reconcile reply's JSON Schema: the document header + essence block."""
+    return _closed(
+        {
             "type": "object",
             "properties": {
                 "title": {
@@ -821,8 +824,23 @@ def _reconcile_tool_schema() -> dict[str, Any]:
                 "main_themes",
                 "phase_headings",
             ],
-        },
-    }
+        }
+    )
+
+
+def _closed(schema: dict[str, Any]) -> dict[str, Any]:
+    """``schema`` with ``additionalProperties: false`` on every object, in place.
+
+    Structured outputs require it on every object, nested ones included; written once
+    here rather than by hand in each schema, so a field added later cannot leave a hole.
+    """
+    if schema.get("type") == "object":
+        schema["additionalProperties"] = False
+        for prop in schema.get("properties", {}).values():
+            _closed(prop)
+    if schema.get("type") == "array" and isinstance(schema.get("items"), dict):
+        _closed(schema["items"])
+    return schema
 
 
 def _leak_re(names: Sequence[str]) -> re.Pattern[str]:
@@ -852,7 +870,7 @@ def _leak_start(key: str) -> re.Pattern[str]:
 
 
 def repair_leaked_markup(
-    tool_input: dict[str, Any], schema: dict[str, Any]
+    fields: dict[str, Any], schema: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     """Undo the model writing its own tool-call markup inside a JSON string (TD-36).
 
@@ -869,10 +887,10 @@ def repair_leaked_markup(
     """
     props: dict[str, Any] = schema["properties"]
     leak = _leak_re(list(props))
-    out = dict(tool_input)
+    out = dict(fields)
     recovered: list[str] = []
     lost: list[str] = []
-    for key, value in tool_input.items():
+    for key, value in fields.items():
         if not isinstance(value, str) or not (first := _leak_start(key).search(value)):
             continue
         out[key] = value[: first.start()].rstrip()
@@ -901,16 +919,17 @@ def repair_leaked_markup(
 
 
 def _repaired(
-    tool_input: dict[str, Any], request: dict[str, Any], where: str, *, log: Logger, notice: Notice
+    fields: dict[str, Any], request: dict[str, Any], where: str, *, log: Logger, notice: Notice
 ) -> dict[str, Any]:
-    """:func:`repair_leaked_markup` over one reply, against the tool its request forced.
+    """:func:`repair_leaked_markup` over one reply, against the schema its request sent.
 
     A clean repair is chatter (``log``): the text is whole and goes through the same
     anchor validation as any other. A leaked field that could not be decoded is content
     the document will be missing, so it is a ``notice``.
     """
-    fixed, recovered, lost = repair_leaked_markup(tool_input, request["tools"][0]["input_schema"])
-    if fixed != tool_input:
+    schema = request["output_config"]["format"]["schema"]
+    fixed, recovered, lost = repair_leaked_markup(fields, schema)
+    if fixed != fields:
         moved = f"; moved back: {', '.join(recovered)}" if recovered else ""
         log(f"{where}: stripped tool markup the model wrote inside its reply{moved}.")
     if lost:
@@ -926,21 +945,21 @@ def _is_blank(value: Any) -> bool:
     return not (value.strip() if isinstance(value, str) else value)
 
 
-def reconcile_gaps(tool_input: dict[str, Any]) -> tuple[list[str], list[str]]:
-    """TD-36: the required emit_reconcile fields a reply left ABSENT, and those it left EMPTY.
+def reconcile_gaps(fields: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """TD-36: the required reconcile fields a reply left ABSENT, and those it left EMPTY.
 
-    The schema's ``required`` is a hint, not a guarantee, unless the tool is ``strict`` —
-    so a reply can omit a key outright or send it blank, and the fix differs. Empty means a
-    whitespace-only string or an empty list. Pure; ``scripts/replay_reconcile.py`` tallies
-    the same split over repeated live calls.
+    Under forced tool-use ``required`` was a hint, so a reply could omit a key outright or
+    send it blank, and the fix differs; structured outputs make ABSENT impossible, so a
+    blank is what this reports now. Empty means a whitespace-only string or an empty list.
+    Pure.
     """
     absent: list[str] = []
     empty: list[str] = []
-    for key in _reconcile_tool_schema()["input_schema"]["required"]:
-        if key not in tool_input:
+    for key in _reconcile_schema()["required"]:
+        if key not in fields:
             absent.append(key)
             continue
-        if _is_blank(tool_input[key]):
+        if _is_blank(fields[key]):
             empty.append(key)
     return absent, empty
 
@@ -983,7 +1002,7 @@ def build_synthesis_request(
     language: str,
     prior_context: str | None = None,
 ) -> dict[str, Any]:
-    """The synthesis request for one phase: forced emit_phase, with coherence context.
+    """The synthesis request for one phase: the phase schema, with coherence context.
 
     Substitutes ``{language}`` and ``{interpretation}`` in the synthesis prompt (like
     :func:`build_request`'s ``{unassigned}``). A "phase N of M" line and the optional
@@ -1005,12 +1024,8 @@ def build_synthesis_request(
         "max_tokens": cfg.max_output_tokens,
         "system": f"{preamble}\n\n{system}",
         "messages": [{"role": "user", "content": phase.text}],
-        "tools": [_phase_tool_schema()],
-        "tool_choice": {"type": "tool", "name": _PHASE_TOOL_NAME},
     }
-    if tier.temperature is not None:  # mirror build_request: omit on models that deprecate it
-        request["temperature"] = tier.temperature
-    return request
+    return _with_output_config(request, _phase_schema(), tier)
 
 
 def build_reconcile_request(
@@ -1019,7 +1034,7 @@ def build_reconcile_request(
     """The reconcile request: title/core_idea/main_themes over the synthesized phases.
 
     Header-only — it reads the phase prose/headings, NEVER the transcript (re-reading
-    would be a second lossy hop). Forced emit_reconcile, ``temperature`` only when set.
+    would be a second lossy hop). The reconcile schema; sampling knobs only when set.
     """
     system = cfg.reconcile_system_prompt.replace("{language}", _language_name(language))
     content = "\n\n".join(f"[Phase {i}] {s.heading}\n{s.prose}" for i, s in enumerate(sections, 1))
@@ -1028,20 +1043,37 @@ def build_reconcile_request(
         "max_tokens": cfg.max_output_tokens,
         "system": system,
         "messages": [{"role": "user", "content": content}],
-        "tools": [_reconcile_tool_schema()],
-        "tool_choice": {"type": "tool", "name": _RECONCILE_TOOL_NAME},
     }
+    return _with_output_config(request, _reconcile_schema(), tier)
+
+
+def _with_output_config(
+    request: dict[str, Any], schema: dict[str, Any], tier: ModelTier
+) -> dict[str, Any]:
+    """Add the structured-output format and the tier's optional sampling knobs (TD-36).
+
+    ``temperature``, ``thinking`` and ``effort`` are each sent only when the tier sets
+    them: the models disagree on all three (Sonnet 5.5 400s on a non-default temperature
+    and on ``disabled`` thinking, Haiku 4.5 on ``effort``), so absent means "the model's
+    own default", never a guessed value.
+    """
+    output_config: dict[str, Any] = {"format": {"type": "json_schema", "schema": schema}}
+    if tier.effort is not None:
+        output_config["effort"] = tier.effort
+    request["output_config"] = output_config
+    if tier.thinking is not None:
+        request["thinking"] = {"type": tier.thinking}
     if tier.temperature is not None:
         request["temperature"] = tier.temperature
     return request
 
 
-def _synthesis_section(tool_input: dict[str, Any]) -> SynthesisSection:
-    """Parse one emit_phase reply into a :class:`SynthesisSection` (defensive)."""
+def _synthesis_section(fields: dict[str, Any]) -> SynthesisSection:
+    """Parse one phase reply into a :class:`SynthesisSection` (defensive)."""
     return SynthesisSection(
-        heading=str(tool_input.get("heading", "")).strip(),
-        prose=str(tool_input.get("prose", "")).strip(),
-        anchors=_str_list(tool_input.get("anchors")),
+        heading=str(fields.get("heading", "")).strip(),
+        prose=str(fields.get("prose", "")).strip(),
+        anchors=_str_list(fields.get("anchors")),
     )
 
 
@@ -1444,10 +1476,10 @@ def synthesize_summary(
                 "max_output_tokens (or lower phase_target_tokens) in models.toml, then "
                 "retry from the saved transcript."
             )
-        tool_input = _repaired(
-            outcome.tool_input, request, f"Phase {ph.index}/{ph.total}", log=log, notice=notice
+        fields = _repaired(
+            outcome.fields, request, f"Phase {ph.index}/{ph.total}", log=log, notice=notice
         )
-        section = _synthesis_section(tool_input)
+        section = _synthesis_section(fields)
         if not section.prose:
             # TD-34: the call answered, was paid for, and carried no prose — so this phase's
             # stretch of the recording is simply ABSENT from the document while the run
@@ -1471,8 +1503,8 @@ def synthesize_summary(
             Summary(
                 title="",
                 core_idea="",
-                decisions=_decisions(tool_input.get("decisions")),
-                action_items=_action_items(tool_input.get("action_items")),
+                decisions=_decisions(fields.get("decisions")),
+                action_items=_action_items(fields.get("action_items")),
                 language=language,
                 synthesis=(section,),
             ),
@@ -1498,7 +1530,7 @@ def synthesize_summary(
         )
     total_in += rec.input_tokens
     total_out += rec.output_tokens
-    rec_input = _repaired(rec.tool_input, rec_request, "Reconcile", log=log, notice=notice)
+    rec_input = _repaired(rec.fields, rec_request, "Reconcile", log=log, notice=notice)
     absent, empty = reconcile_gaps(rec_input)
     if absent or empty:
         # TD-36: the parser below reads an ABSENT key and an EMPTY value the same way, and

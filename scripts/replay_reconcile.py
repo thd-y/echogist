@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""TD-36 experiment — replay ONLY the reconcile call over a saved summary's phases.
+"""TD-36 gate — replay one reconcile or phase call from a saved summary, per model variant.
 
-Reconcile drops a field (the title 3 times in 7 documents, ``main_skill`` and the
-phase-heading outline once each), and the saved artifacts cannot say whether the key
-was ABSENT from the reply or present and EMPTY. The two have different fixes: the tool
-schema's ``required`` is only enforced when the tool is ``strict``, so strict mode
-cures an absent key and does nothing for an empty one. This script measures the split:
-it rebuilds the exact reconcile request the app sends from a saved ``.json`` (the phase
-prose is in it, so no phase is re-bought), sends it ``--runs`` times as shipped and
-``--runs`` times with ``strict: true``, and tallies absent / empty per field.
+Forced tool-use let Sonnet write its own tool-call markup inside the JSON strings, so
+fields landed inside each other (5 of 7 Strategy documents). The pipeline now asks for
+structured outputs instead. This script is the paid gate for that change and for the
+model each tier runs: it rebuilds the EXACT request the app sends — the real
+``build_reconcile_request`` / ``build_synthesis_request`` — from a saved ``.json`` (and,
+for a phase, its transcript, found by fingerprint), sends it ``--runs`` times per
+``--variant``, and reports per reply: stop reason, output tokens, seconds, blank required
+fields, and any tool markup still written into a field.
+
+A variant is ``MODEL[:THINKING[:EFFORT]]`` over the ``--tier`` it starts from, e.g.
+``claude-sonnet-5``, ``claude-sonnet-5-5:between_tools:high``,
+``claude-sonnet-5-5:adaptive:low``. An empty part keeps the tier's value.
 
 **Killswitch.** A STANDALONE script, like ``scripts/check-models.py``: nothing under
 ``echogist/`` imports it, and its calls happen only inside :func:`main`, after a y/N
@@ -18,16 +22,18 @@ for the raw replies. Run on Windows (the key comes from ``ANTHROPIC_API_KEY`` or
 
     .venv\\Scripts\\python.exe scripts\\replay_reconcile.py ^
         "output\\summaries\\raw\\2026-09-05-Модуль Стратегия, занятие 2.json" ^
-        --runs 5 --dump replay.jsonl
+        --variant claude-sonnet-5 --variant claude-sonnet-5-5:between_tools:high ^
+        --runs 3 --phase 7 --dump phase7.jsonl
 """
 
 from __future__ import annotations
 
 import argparse
-import copy
 import json
+import statistics
 import sys
-from collections import Counter
+import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -35,32 +41,97 @@ _APP_ROOT = Path(__file__).resolve().parent.parent
 if str(_APP_ROOT) not in sys.path:
     sys.path.insert(0, str(_APP_ROOT))
 
-from echogist import config, guard, render, summarize  # noqa: E402
+from echogist import chunk, config, guard, paths, render, summarize  # noqa: E402
+from echogist.config import ModelTier  # noqa: E402
+
+# $/MTok (in, out) for a variant model no models.toml tier carries yet. Anthropic's
+# price table, 2026-10-06; used only for the y/N ceiling and the actual-cost line.
+_KNOWN_PRICES = {"claude-sonnet-5-5": (2.0, 10.0)}
 
 
-def strict_variant(request: dict[str, Any]) -> dict[str, Any]:
-    """``request`` with its tool made ``strict``: every object closed to extra keys."""
-    out = copy.deepcopy(request)
-    tool = out["tools"][0]
-    tool["strict"] = True
-
-    def close(schema: dict[str, Any]) -> None:
-        if schema.get("type") == "object":
-            schema["additionalProperties"] = False
-            for prop in schema.get("properties", {}).values():
-                close(prop)
-        if schema.get("type") == "array" and isinstance(schema.get("items"), dict):
-            close(schema["items"])
-
-    close(tool["input_schema"])
+def parse_variant(spec: str, tier: ModelTier) -> ModelTier:
+    """``tier`` with the variant's model, thinking and effort applied; prices follow the
+    model. An unknown thinking/effort is refused here, before anything is sent."""
+    model, thinking, effort = (spec.split(":") + ["", ""])[:3]
+    out = replace(
+        tier,
+        model_id=model or tier.model_id,
+        thinking=thinking or tier.thinking,
+        effort=effort or tier.effort,
+    )
+    if out.thinking not in (None, *config._THINKING_TYPES):
+        raise ValueError(f"unknown thinking '{out.thinking}' in variant '{spec}'")
+    if out.effort not in (None, *config._EFFORT_LEVELS):
+        raise ValueError(f"unknown effort '{out.effort}' in variant '{spec}'")
     return out
+
+
+def priced(variant: ModelTier, tiers: dict[str, ModelTier]) -> ModelTier:
+    """``variant`` carrying the prices of whichever tier runs its model, else the known
+    table; a model with neither is refused, so the ceiling is never a guess."""
+    for tier in tiers.values():
+        if tier.model_id == variant.model_id:
+            return replace(
+                variant,
+                price_in_per_mtok=tier.price_in_per_mtok,
+                price_out_per_mtok=tier.price_out_per_mtok,
+            )
+    if variant.model_id in _KNOWN_PRICES:
+        price_in, price_out = _KNOWN_PRICES[variant.model_id]
+        return replace(variant, price_in_per_mtok=price_in, price_out_per_mtok=price_out)
+    raise ValueError(f"no price known for '{variant.model_id}'; add it to models.toml")
+
+
+def inspect_reply(fields: dict[str, Any], schema: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """The required fields a reply left blank, and the fields whose text still carried
+    tool markup (moved back by :func:`summarize.repair_leaked_markup`). Pure."""
+    blank = [k for k in schema["required"] if summarize._is_blank(fields.get(k))]
+    repaired, _, _ = summarize.repair_leaked_markup(fields, schema)
+    leaked = [k for k in fields if repaired.get(k) != fields[k]]
+    return blank, leaked
+
+
+def _phase_request(
+    saved: summarize.Summary,
+    number: int,
+    variant: ModelTier,
+    cfg: config.ModelConfig,
+    base: Path,
+) -> dict[str, Any]:
+    """The phase request the app sent, rebuilt: the transcript found by fingerprint, the
+    same phase plan, and the saved earlier phases as the continuity context."""
+    found = sorted(paths.transcripts(base).glob(f"*-{saved.source_fingerprint}.txt"))
+    if not saved.source_fingerprint or not found:
+        raise ValueError("its transcript is not in output/transcripts (matched by fingerprint)")
+    phases = chunk.plan_phases(found[-1].read_text(encoding="utf-8"), cfg.chunk)
+    if len(phases) != len(saved.synthesis):
+        raise ValueError(
+            f"the transcript plans {len(phases)} phases today but the summary has "
+            f"{len(saved.synthesis)}; [chunk] changed since, so the replay would not match"
+        )
+    if not 1 <= number <= len(phases):
+        raise ValueError(f"--phase must be 1..{len(phases)}")
+    return summarize.build_synthesis_request(
+        phases[number - 1],
+        variant,
+        cfg.summarize,
+        language=saved.language,
+        prior_context=summarize._prior_context(saved.synthesis[: number - 1]),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("summary", type=Path, help="a saved output/summaries/raw/*.json")
-    parser.add_argument("--runs", type=int, default=5, help="calls per variant (default 5)")
+    parser.add_argument(
+        "--variant",
+        action="append",
+        help="MODEL[:THINKING[:EFFORT]]; repeat for several (default: the tier as is)",
+    )
+    parser.add_argument("--runs", type=int, default=3, help="calls per variant (default 3)")
     parser.add_argument("--tier", default="balanced", help="models.toml tier (default balanced)")
+    parser.add_argument("--phase", type=int, help="replay phase N instead of the reconcile")
+    parser.add_argument("--base", type=Path, default=_APP_ROOT, help="folder holding output/")
     parser.add_argument("--dump", type=Path, help="also write every raw reply to this .jsonl")
     args = parser.parse_args(argv)
 
@@ -68,7 +139,16 @@ def main(argv: list[str] | None = None) -> int:
         cfg = config.load_model_config()
         tier = cfg.tier(args.tier)
         saved = render.load_summary(args.summary)
-    except (config.ConfigError, render.RenderError) as exc:
+        variants = [priced(parse_variant(spec, tier), cfg.tiers) for spec in (args.variant or [""])]
+        requests = [
+            _phase_request(saved, args.phase, v, cfg, args.base)
+            if args.phase
+            else summarize.build_reconcile_request(
+                saved.synthesis, v, cfg.summarize, language=saved.language
+            )
+            for v in variants
+        ]
+    except (config.ConfigError, render.RenderError, ValueError) as exc:
         print(exc)
         return 1
     key = config.get_api_key()
@@ -76,64 +156,62 @@ def main(argv: list[str] | None = None) -> int:
         print("No API key: set ANTHROPIC_API_KEY or config/secrets.toml.")
         return 1
     if not saved.synthesis:
-        print(f"{args.summary} has no phases to reconcile.")
+        print(f"{args.summary} has no phases.")
         return 1
 
-    shipped = summarize.build_reconcile_request(
-        saved.synthesis, tier, cfg.summarize, language=saved.language
+    target = f"phase {args.phase}" if args.phase else "reconcile"
+    in_tok = guard.estimate_input_tokens(
+        requests[0]["system"] + requests[0]["messages"][0]["content"]
     )
-    variants = {"shipped": shipped, "strict": strict_variant(shipped)}
-    calls = args.runs * len(variants)
-    in_tok = guard.estimate_input_tokens(shipped["messages"][0]["content"])
-    worst = calls * (
-        in_tok * tier.price_in_per_mtok + cfg.summarize.max_output_tokens * tier.price_out_per_mtok
+    worst = args.runs * sum(
+        in_tok * v.price_in_per_mtok + cfg.summarize.max_output_tokens * v.price_out_per_mtok
+        for v in variants
     )
     print(
-        f"{len(saved.synthesis)} phases, ~{in_tok:,} input tokens per call, {tier.model_id}.\n"
-        f"{calls} reconcile calls; at most ${worst / 1e6:.2f} (every reply at the output cap)."
+        f"{target} of {args.summary.name}: ~{in_tok:,} input tokens per call.\n"
+        f"{args.runs * len(variants)} calls over {len(variants)} variant(s); "
+        f"at most ${worst / 1e6:.2f} (every reply at the output cap)."
     )
     if input("Proceed? [y/N] ").strip().lower() != "y":
         print("Cancelled; nothing was sent.")
         return 0
 
-    fields = shipped["tools"][0]["input_schema"]["required"]
-    schema = shipped["tools"][0]["input_schema"]
     dump = args.dump.open("w", encoding="utf-8") if args.dump else None
-    spent_in = spent_out = 0
-    for name, request in variants.items():
-        absent_n: Counter[str] = Counter()
-        empty_n: Counter[str] = Counter()
-        for i in range(1, args.runs + 1):
-            try:
-                outcome = summarize._default_caller(request, key)
-            except summarize.SummarizeError as exc:
-                print(f"{name} #{i}: {exc}")
-                return 1
-            spent_in += outcome.input_tokens
-            spent_out += outcome.output_tokens
-            if dump:
-                record = {"variant": name, "run": i, "tool_input": outcome.tool_input}
-                dump.write(json.dumps(record, ensure_ascii=False) + "\n")
-            absent, empty = summarize.reconcile_gaps(outcome.tool_input)
-            _, leaked, _ = summarize.repair_leaked_markup(outcome.tool_input, schema)
-            absent_n.update(absent)
-            empty_n.update(empty)
-            extra = sorted(set(outcome.tool_input) - set(fields))
-            print(
-                f"{name} #{i}: stop_reason={outcome.stop_reason}, "
-                f"out={outcome.output_tokens}, absent={absent or '-'}, empty={empty or '-'}"
-                + (f", leaked into another field={leaked}" if leaked else "")
-                + (f", unexpected keys={extra}" if extra else "")
+    spent = 0.0
+    try:
+        for variant, request in zip(variants, requests, strict=True):
+            name = ":".join(
+                str(x or "-") for x in (variant.model_id, variant.thinking, variant.effort)
             )
-        print(f"\n{name}, {args.runs} runs — field: absent / empty")
-        for field in fields:
-            print(f"  {field}: {absent_n[field]} / {empty_n[field]}")
-        print()
-    if dump:
-        dump.close()
-        print(f"Raw replies: {args.dump}")
-    spent = spent_in * tier.price_in_per_mtok + spent_out * tier.price_out_per_mtok
-    print(f"Actual cost: ${spent / 1e6:.4f} ({spent_in:,} input + {spent_out:,} output tokens).")
+            schema = request["output_config"]["format"]["schema"]
+            seconds: list[float] = []
+            for i in range(1, args.runs + 1):
+                started = time.monotonic()
+                try:
+                    outcome = summarize._default_caller(request, key)
+                except summarize.SummarizeError as exc:
+                    print(f"{name} #{i}: FAILED — {exc}")
+                    continue
+                seconds.append(time.monotonic() - started)
+                spent += (
+                    outcome.input_tokens * variant.price_in_per_mtok
+                    + outcome.output_tokens * variant.price_out_per_mtok
+                )
+                if dump:
+                    record = {"variant": name, "run": i, "target": target, "fields": outcome.fields}
+                    dump.write(json.dumps(record, ensure_ascii=False) + "\n")
+                blank, leaked = inspect_reply(outcome.fields, schema)
+                print(
+                    f"{name} #{i}: stop_reason={outcome.stop_reason}, out={outcome.output_tokens}, "
+                    f"{seconds[-1]:.0f}s, blank={blank or '-'}, markup in={leaked or '-'}"
+                )
+            if seconds:
+                print(f"  {name}: median {statistics.median(seconds):.0f}s over {len(seconds)}\n")
+    finally:
+        if dump:
+            dump.close()
+            print(f"Raw replies: {args.dump}")
+    print(f"Actual cost: ${spent / 1e6:.4f} (calls that FAILED are billed but not counted).")
     return 0
 
 
