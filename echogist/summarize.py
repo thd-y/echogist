@@ -825,6 +825,107 @@ def _reconcile_tool_schema() -> dict[str, Any]:
     }
 
 
+def _leak_re(names: Sequence[str]) -> re.Pattern[str]:
+    """Every tool-markup tag the model was seen writing INSIDE a string value (TD-36).
+
+    Group ``open`` names the field an opener starts: ``<parameter name="anchors">``,
+    ``<anchors>`` and ``<action_items">`` (stray quote included — observed). Anything else
+    matched is a closer: ``</parameter>``, ``</prose>``, ``</invoke>``. Only the schema's own
+    field names count, so prose that mentions ``<b>`` or ``<tag>`` is never cut.
+    """
+    alt = "|".join(re.escape(n) for n in names)
+    return re.compile(
+        rf'<parameter name="(?P<open>{alt})">|<(?P<bare>{alt})"?>'
+        rf"|</(?:parameter|invoke|{alt})>|<invoke\b[^>]*>"
+    )
+
+
+def _leak_start(key: str) -> re.Pattern[str]:
+    """Where a leak in field ``key`` can BEGIN: only a tag no prose contains — the tool-call
+    wrapper (``<parameter name=…>``, ``</parameter>``, ``<invoke>``, ``</invoke>``) or the
+    field's own closer (``</prose>`` inside prose). Every real leak opens with one. A bare
+    ``<title>`` or ``</heading>`` is what an HTML lecture SAYS, so it never starts a cut; the
+    bare forms are parsed only after one of these."""
+    return re.compile(
+        rf'<parameter name="|</parameter>|<invoke\b[^>]*>|</invoke>|</{re.escape(key)}>'
+    )
+
+
+def repair_leaked_markup(
+    tool_input: dict[str, Any], schema: dict[str, Any]
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Undo the model writing its own tool-call markup inside a JSON string (TD-36).
+
+    Observed on real runs: a reply's ``core_idea`` ending ``…</parameter>\\n<parameter
+    name="main_skill">Материал учит…`` — the next fields written INTO the string, so the
+    parser found them absent — and phase prose ending ``</prose>\\n<parameter
+    name="anchors">[…]``. The text is all there, only misplaced, so it is moved back:
+    each top-level string is cut at its first leak marker (:func:`_leak_start`), and every
+    ``<field>…`` segment after the cut fills that field when the reply left it absent or
+    empty (a real value always wins). Array/object fields are decoded as JSON.
+
+    Returns ``(repaired, recovered, lost)``: the fields refilled, and the leaked fields
+    whose content could not be decoded. Pure; the input is not mutated.
+    """
+    props: dict[str, Any] = schema["properties"]
+    leak = _leak_re(list(props))
+    out = dict(tool_input)
+    recovered: list[str] = []
+    lost: list[str] = []
+    for key, value in tool_input.items():
+        if not isinstance(value, str) or not (first := _leak_start(key).search(value)):
+            continue
+        out[key] = value[: first.start()].rstrip()
+        segments: list[tuple[str, str]] = []
+        current, start = "", 0
+        for m in leak.finditer(value, first.start()):
+            if current:
+                segments.append((current, value[start : m.start()]))
+            current, start = m.group("open") or m.group("bare") or "", m.end()
+        if current:
+            segments.append((current, value[start:]))
+        for name, raw in segments:
+            if not _is_blank(out.get(name)):
+                continue
+            text = raw.strip()
+            if props[name].get("type") == "string":
+                out[name] = text
+            else:
+                try:
+                    out[name] = json.loads(text)
+                except json.JSONDecodeError:
+                    lost.append(name)
+                    continue
+            recovered.append(name)
+    return out, recovered, lost
+
+
+def _repaired(
+    tool_input: dict[str, Any], request: dict[str, Any], where: str, *, log: Logger, notice: Notice
+) -> dict[str, Any]:
+    """:func:`repair_leaked_markup` over one reply, against the tool its request forced.
+
+    A clean repair is chatter (``log``): the text is whole and goes through the same
+    anchor validation as any other. A leaked field that could not be decoded is content
+    the document will be missing, so it is a ``notice``.
+    """
+    fixed, recovered, lost = repair_leaked_markup(tool_input, request["tools"][0]["input_schema"])
+    if fixed != tool_input:
+        moved = f"; moved back: {', '.join(recovered)}" if recovered else ""
+        log(f"{where}: stripped tool markup the model wrote inside its reply{moved}.")
+    if lost:
+        notice(
+            f"{where}: the model wrote {', '.join(lost)} inside another field and it could "
+            "not be read back; that part is missing from the document."
+        )
+    return fixed
+
+
+def _is_blank(value: Any) -> bool:
+    """Absent, or empty: a whitespace-only string or an empty list (TD-36)."""
+    return not (value.strip() if isinstance(value, str) else value)
+
+
 def reconcile_gaps(tool_input: dict[str, Any]) -> tuple[list[str], list[str]]:
     """TD-36: the required emit_reconcile fields a reply left ABSENT, and those it left EMPTY.
 
@@ -839,8 +940,7 @@ def reconcile_gaps(tool_input: dict[str, Any]) -> tuple[list[str], list[str]]:
         if key not in tool_input:
             absent.append(key)
             continue
-        value = tool_input[key]
-        if not (value.strip() if isinstance(value, str) else value):
+        if _is_blank(tool_input[key]):
             empty.append(key)
     return absent, empty
 
@@ -1344,7 +1444,10 @@ def synthesize_summary(
                 "max_output_tokens (or lower phase_target_tokens) in models.toml, then "
                 "retry from the saved transcript."
             )
-        section = _synthesis_section(outcome.tool_input)
+        tool_input = _repaired(
+            outcome.tool_input, request, f"Phase {ph.index}/{ph.total}", log=log, notice=notice
+        )
+        section = _synthesis_section(tool_input)
         if not section.prose:
             # TD-34: the call answered, was paid for, and carried no prose — so this phase's
             # stretch of the recording is simply ABSENT from the document while the run
@@ -1368,8 +1471,8 @@ def synthesize_summary(
             Summary(
                 title="",
                 core_idea="",
-                decisions=_decisions(outcome.tool_input.get("decisions")),
-                action_items=_action_items(outcome.tool_input.get("action_items")),
+                decisions=_decisions(tool_input.get("decisions")),
+                action_items=_action_items(tool_input.get("action_items")),
                 language=language,
                 synthesis=(section,),
             ),
@@ -1386,7 +1489,8 @@ def synthesize_summary(
             on_phase(_running_summary(sections, decisions, actions, language))
 
     log("Reconciling the phases into a document header + essence block...")
-    rec = caller(build_reconcile_request(sections, tier, cfg, language=language), api_key)
+    rec_request = build_reconcile_request(sections, tier, cfg, language=language)
+    rec = caller(rec_request, api_key)
     if rec.stop_reason == "max_tokens":
         raise SummarizeError(
             "The reconcile step hit the output cap. Raise max_output_tokens in "
@@ -1394,7 +1498,8 @@ def synthesize_summary(
         )
     total_in += rec.input_tokens
     total_out += rec.output_tokens
-    absent, empty = reconcile_gaps(rec.tool_input)
+    rec_input = _repaired(rec.tool_input, rec_request, "Reconcile", log=log, notice=notice)
+    absent, empty = reconcile_gaps(rec_input)
     if absent or empty:
         # TD-36: the parser below reads an ABSENT key and an EMPTY value the same way, and
         # the two have different causes. Seven documents of evidence could not say which.
@@ -1402,13 +1507,13 @@ def synthesize_summary(
             f"Reconcile reply (stop_reason={rec.stop_reason or '?'}): "
             f"absent {', '.join(absent) or 'none'}; empty {', '.join(empty) or 'none'}."
         )
-    title = str(rec.tool_input.get("title", "")).strip()
-    core_idea = str(rec.tool_input.get("core_idea", "")).strip()
-    main_skill = str(rec.tool_input.get("main_skill", "")).strip()
-    test_questions = _test_questions(rec.tool_input.get("test_questions"))
-    main_themes = _str_list(rec.tool_input.get("main_themes"))
+    title = str(rec_input.get("title", "")).strip()
+    core_idea = str(rec_input.get("core_idea", "")).strip()
+    main_skill = str(rec_input.get("main_skill", "")).strip()
+    test_questions = _test_questions(rec_input.get("test_questions"))
+    main_themes = _str_list(rec_input.get("main_themes"))
     # TD-18: normalize the forward-only phase headings into one coherent outline.
-    sections = _apply_normalized_headings(sections, rec.tool_input.get("phase_headings"), log=log)
+    sections = _apply_normalized_headings(sections, rec_input.get("phase_headings"), log=log)
     if not title and len(sections) == 1:
         # K=1 degenerate: the sole phase IS the document, so its heading is a better title
         # than the dated source stem when reconcile returned none.

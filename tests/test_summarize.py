@@ -1745,3 +1745,121 @@ def test_a_two_field_timecode_cannot_slip_past_the_validator() -> None:
     out = summarize.validate_anchors(summary, "[00:00:00] один\n", log=lambda _s: None)
 
     assert out.synthesis[0].prose == "Текст тут."
+
+
+# TD-36: the model writes its own tool-call markup INSIDE a JSON string. Every shape below
+# was copied from a real saved summary (2026-09-05/06 runs), only shortened.
+_PHASE_SCHEMA = summarize._phase_tool_schema()["input_schema"]
+_RECONCILE_SCHEMA = summarize._reconcile_tool_schema()["input_schema"]
+
+
+def test_repair_moves_a_reconcile_field_back_out_of_the_one_before_it() -> None:
+    leaked: dict[str, Any] = {
+        "title": "T",
+        "core_idea": 'Центральная мысль.</parameter>\n<parameter name="main_skill">Материал учит.',
+        "test_questions": [{"question": "q", "answer": "a"}],
+    }
+    fixed, recovered, lost = summarize.repair_leaked_markup(leaked, _RECONCILE_SCHEMA)
+    assert fixed["core_idea"] == "Центральная мысль."
+    assert fixed["main_skill"] == "Материал учит."
+    assert (recovered, lost) == (["main_skill"], [])
+    assert leaked["core_idea"].endswith("Материал учит.")  # the input is not mutated
+
+
+def test_repair_decodes_leaked_phase_arrays_in_both_tag_styles() -> None:
+    parameter_style = {
+        "heading": "H",
+        "prose": 'Текст [02:55:00].</prose>\n<parameter name="anchors">["02:31:12","02:55:00"]'
+        '</parameter>\n<parameter name="decisions">[{"decision":"d","rationale":"r",'
+        '"anchor":"02:31:12"}]</parameter>\n</invoke>',
+    }
+    fixed, recovered, _ = summarize.repair_leaked_markup(parameter_style, _PHASE_SCHEMA)
+    assert fixed["prose"] == "Текст [02:55:00]."
+    assert fixed["anchors"] == ["02:31:12", "02:55:00"]
+    assert fixed["decisions"][0]["decision"] == "d"
+    assert recovered == ["anchors", "decisions"]
+
+    bare_style = {
+        "prose": 'Текст.</prose>\n<anchors>["01:03:23"]</anchors>\n<decisions>[]</decisions>\n'
+        '<action_items">[{"task":"t","owner":"","estimate":"","anchor":"01:03:23"}]'
+        "</action_items>",
+    }
+    fixed, recovered, _ = summarize.repair_leaked_markup(bare_style, _PHASE_SCHEMA)
+    assert fixed["prose"] == "Текст."
+    assert fixed["anchors"] == ["01:03:23"] and fixed["action_items"][0]["task"] == "t"
+    assert recovered == ["anchors", "decisions", "action_items"]
+
+
+def test_repair_strips_a_bare_closing_tag_and_leaves_clean_text_alone() -> None:
+    fixed, recovered, lost = summarize.repair_leaked_markup(
+        {"prose": "Вера Даши в Бога.</prose>\n</invoke>"}, _PHASE_SCHEMA
+    )
+    assert (fixed["prose"], recovered, lost) == ("Вера Даши в Бога.", [], [])
+    clean = {"prose": "A <b> tag and a <tag> in a quote stay."}
+    assert summarize.repair_leaked_markup(clean, _PHASE_SCHEMA) == (clean, [], [])
+
+
+def test_repair_never_overwrites_a_real_value_and_reports_what_it_cannot_decode() -> None:
+    leaked = {
+        "prose": 'P.</prose><parameter name="anchors">["00:00:01"]</parameter>'
+        '<parameter name="decisions">[{"decision": cut off',
+        "anchors": ["[00:00:00]"],
+    }
+    fixed, recovered, lost = summarize.repair_leaked_markup(leaked, _PHASE_SCHEMA)
+    assert fixed["anchors"] == ["[00:00:00]"]  # the real array wins
+    assert (fixed["prose"], recovered, lost) == ("P.", [], ["decisions"])
+
+
+def test_a_leaked_phase_is_repaired_before_validation_and_the_loss_is_loud() -> None:
+    lines: list[str] = []
+    loud: list[str] = []
+    prose = (
+        'First idea [00:00:00].</prose>\n<parameter name="anchors">["00:00:00"]</parameter>'
+        '\n<parameter name="decisions">[{"decision": cut off'
+    )
+    result = summarize.synthesize_summary(
+        _two_phases(),
+        _tier(),
+        _cfg(),
+        language="en",
+        source_stem="lecture",
+        api_key="k",
+        caller=_seq_caller(
+            _outcome({"heading": "Intro", "prose": prose}),
+            _outcome(_phase_ti("Body", "Second [00:10:00].", anchors=["[00:10:00]"])),
+            _outcome(
+                {
+                    "title": "T",
+                    "core_idea": 'C.</parameter>\n<parameter name="main_skill">S.</parameter>',
+                    "test_questions": [{"question": "q", "answer": "a"}],
+                    "main_themes": ["x"],
+                    "phase_headings": ["Intro", "Body"],
+                }
+            ),
+        ),
+        log=lines.append,
+        notice=loud.append,
+    )
+    first = result.summary.synthesis[0]
+    assert first.prose == "First idea [00:00:00]."
+    assert first.anchors == ("[00:00:00]",)  # recovered, then validated like any anchor
+    assert (result.summary.core_idea, result.summary.main_skill) == ("C.", "S.")
+    assert any(line.startswith("Phase 1/2: stripped tool markup") for line in lines)
+    assert any("Reconcile: stripped tool markup" in line for line in lines)
+    assert any("Phase 1/2" in n and "decisions" in n for n in loud)
+    assert not any("Reconcile reply" in line for line in lines)  # nothing left missing
+
+
+def test_repair_never_cuts_a_lecture_that_merely_mentions_a_field_named_tag() -> None:
+    """/review: an HTML or SEO lecture says "<title>" in plain prose. Cutting there would
+    silently drop the rest of the core idea, so only a marker no prose contains starts a cut."""
+    core = "The lecturer says the <title> tag matters most, and the core idea goes on."
+    header = {"title": "SEO basics", "core_idea": core}
+    assert summarize.repair_leaked_markup(header, _RECONCILE_SCHEMA) == (header, [], [])
+    for prose in (
+        "Он объясняет, что </title> закрывает заголовок; дальше идёт проза.",
+        "Разметка </heading> в тексте, и после неё важная мысль.",
+        "Список <anchors> и <decisions> упомянут в лекции как слова.",
+    ):
+        phase = {"prose": prose}
+        assert summarize.repair_leaked_markup(phase, _PHASE_SCHEMA) == (phase, [], [])

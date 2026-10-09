@@ -78,11 +78,11 @@ fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; ru
 
 ## Next
 
-1. **TD-36: measure absent vs empty before any fix (2026-10-10).** Size is dead (3 of 7 titles
-   lost, the smallest input among them); the lead is now that the reconcile tool is not `strict`,
-   so `required` is a hint. Reconcile logs absent/empty per field; next is the operator's Windows
-   run of `scripts/replay_reconcile.py` on занятие 2, shipped vs strict, ~$0.13 a call. Absent →
-   ship `strict: true`; empty → strict will not help, back to the prompt.
+1. **TD-36 root cause (2026-10-10): Sonnet writes `</parameter><parameter name="…">` INSIDE a
+   string** (phases too, 5 of 7 Strategy docs). `repair_leaked_markup` moves it back on every
+   reply; **strict is NOT the fix** (replay: it turns absent keys into blank ones). Next: the
+   operator runs `scripts/repair_summaries.py --apply` on the Windows tree; the TITLE loss is
+   still unexplained — `replay_reconcile.py --dump` keeps raw replies to find where it goes.
 2. `win-smoke.bat` runs off `tests/fixtures/audio/smoke.mp3` (gitignored): no paid run needed.
 3. **CI runs the gate** (`ci.yml`: windows + ubuntu, 3.11, full lock), the only 3.11-on-Windows
    run (dev is 3.12/WSL); its first caught a float-sum drift and 16 posix-only tests. Streaming; 1b.

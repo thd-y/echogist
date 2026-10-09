@@ -12,17 +12,20 @@ prose is in it, so no phase is re-bought), sends it ``--runs`` times as shipped 
 
 **Killswitch.** A STANDALONE script, like ``scripts/check-models.py``: nothing under
 ``echogist/`` imports it, and its calls happen only inside :func:`main`, after a y/N
-prompt that shows the worst-case cost. It writes nothing. Run on Windows (the key is in
-``config/secrets.toml`` there), from the repo root::
+prompt that shows the worst-case cost. It writes nothing unless ``--dump`` names a file
+for the raw replies. Run on Windows (the key comes from ``ANTHROPIC_API_KEY`` or
+``config/secrets.toml``), from the repo root::
 
     .venv\\Scripts\\python.exe scripts\\replay_reconcile.py ^
-        "output\\summaries\\raw\\2026-09-05-Модуль Стратегия, занятие 2.json" --runs 5
+        "output\\summaries\\raw\\2026-09-05-Модуль Стратегия, занятие 2.json" ^
+        --runs 5 --dump replay.jsonl
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -58,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("summary", type=Path, help="a saved output/summaries/raw/*.json")
     parser.add_argument("--runs", type=int, default=5, help="calls per variant (default 5)")
     parser.add_argument("--tier", default="balanced", help="models.toml tier (default balanced)")
+    parser.add_argument("--dump", type=Path, help="also write every raw reply to this .jsonl")
     args = parser.parse_args(argv)
 
     try:
@@ -93,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     fields = shipped["tools"][0]["input_schema"]["required"]
+    schema = shipped["tools"][0]["input_schema"]
+    dump = args.dump.open("w", encoding="utf-8") if args.dump else None
     spent_in = spent_out = 0
     for name, request in variants.items():
         absent_n: Counter[str] = Counter()
@@ -105,19 +111,27 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             spent_in += outcome.input_tokens
             spent_out += outcome.output_tokens
+            if dump:
+                record = {"variant": name, "run": i, "tool_input": outcome.tool_input}
+                dump.write(json.dumps(record, ensure_ascii=False) + "\n")
             absent, empty = summarize.reconcile_gaps(outcome.tool_input)
+            _, leaked, _ = summarize.repair_leaked_markup(outcome.tool_input, schema)
             absent_n.update(absent)
             empty_n.update(empty)
             extra = sorted(set(outcome.tool_input) - set(fields))
             print(
                 f"{name} #{i}: stop_reason={outcome.stop_reason}, "
                 f"out={outcome.output_tokens}, absent={absent or '-'}, empty={empty or '-'}"
+                + (f", leaked into another field={leaked}" if leaked else "")
                 + (f", unexpected keys={extra}" if extra else "")
             )
         print(f"\n{name}, {args.runs} runs — field: absent / empty")
         for field in fields:
             print(f"  {field}: {absent_n[field]} / {empty_n[field]}")
         print()
+    if dump:
+        dump.close()
+        print(f"Raw replies: {args.dump}")
     spent = spent_in * tier.price_in_per_mtok + spent_out * tier.price_out_per_mtok
     print(f"Actual cost: ${spent / 1e6:.4f} ({spent_in:,} input + {spent_out:,} output tokens).")
     return 0
