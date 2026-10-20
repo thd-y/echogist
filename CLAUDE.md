@@ -89,12 +89,12 @@ Read on demand, not up front: `docs/INVARIANTS.md` for product invariants,
 3. Do not read further docs until the task requires them
 4. If docs conflict with operator instruction — stop and ask
 
-## Workflow (gstack)
+## Workflow (superpowers)
 
-Apply gstack skills at these gates:
-- `/office-hours` — before any ambiguous or new-scope task
-- `/plan-eng-review` — before any ADR-triggering implementation
-- `/review` — before every commit touching non-trivial code
+Apply superpowers skills at these gates:
+- `brainstorming` — before any ambiguous or new-scope task
+- `writing-plans` — before any ADR-triggering implementation
+- `requesting-code-review` — before every commit touching non-trivial code
 
 Do not skip review gates for: DB, LLM prompts, evaluation, safety, CI/deploy.
 
