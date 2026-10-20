@@ -68,20 +68,6 @@ no history/analytics. Personal-use, Windows-only; developed in WSL2.
 - **Estimate Cyrillic high.** The local token estimate is language-aware and biased
   high so an over-long transcript is always caught.
 
-## State
-
-- **Current status:** `docs/CURRENT_CONTEXT.md`
-
-## Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
 ## Release
 
 Releases are cut with `scripts/release.py` + a GitHub PAT — **never `/ship`** (the gstack ship
@@ -97,29 +83,10 @@ Read on demand, not up front: `docs/archive/ENGINEERING_PLAN.md` for pipeline/co
 implementation, `docs/TECHNICAL_DEBT.md` for active debt.
 
 **At session start:**
-1. Read `docs/CURRENT_CONTEXT.md`
+1. Read `CURRENT_CONTEXT.md`
 2. Report: active deliverable, blockers, git state (branch + dirty files)
 3. Do not read further docs until the task requires them
 4. If docs conflict with operator instruction — stop and ask
-
-## State Update Protocol
-
-`docs/CURRENT_CONTEXT.md` is **owned by the assistant** (operator instruction, 2026-09-06).
-Write it, trim it, and keep it true without asking. Never put a question about its contents,
-its shape or its status to the operator — not "may I update it", not "is this still current",
-not "which line should go". If a fact in it turns out to be wrong, fix it. The operator still
-edits it whenever they want, and their version wins.
-
-**ONE trim per update, and it lands under the ~88-line cap.** Add and cut in the SAME edit:
-count the lines before writing, and if the result is over, cut in that write — never commit an
-over-cap file and trim it in a follow-up. A second trim pass means the first was not a decision,
-and it spends two commits saying what one says. Cut the paraphrase, the note that has become the
-steady state, and anything CLAUDE.md or the CHANGELOG already carries; keep what only this file
-knows.
-
-Upon task completion, before closing:
-- Update `docs/CURRENT_CONTEXT.md` (silently — see above)
-- Flag any new technical debt for `docs/TECHNICAL_DEBT.md`
 
 ## Workflow (gstack)
 
@@ -130,10 +97,12 @@ Apply gstack skills at these gates:
 
 Do not skip review gates for: DB, LLM prompts, evaluation, safety, CI/deploy.
 
+Flag any new technical debt for `docs/TECHNICAL_DEBT.md`
+
 ## Source-of-Truth Priority
 
 When documents conflict:
 1. Explicit operator instruction in current session
 2. This CLAUDE.md (guardrails take precedence over all docs)
 3. `docs/archive/ENGINEERING_PLAN.md` (locked build spec — authoritative for architecture/stack/scope)
-4. `docs/CURRENT_CONTEXT.md` (live status — authoritative for priorities/blockers)
+4. `CURRENT_CONTEXT.md` (live status — authoritative for priorities/blockers)

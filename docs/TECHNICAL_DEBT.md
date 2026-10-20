@@ -44,7 +44,7 @@ branch `chore/close-tech-debt`); TD-22 through TD-28 are the entries since, and 
 closed: TD-22, TD-25 and TD-26 on 2026-09-04, TD-23/TD-24 the day after the first full folder
 run off that run's own audited numbers, and TD-27 on 2026-09-05. TD-29 closed 2026-09-04 with the
 `notice` channel, which TD-28 then reused for its own renderer half on 2026-09-05. The other open
-forward item is T8 (offline LLM-judge groundedness eval), tracked in `docs/CURRENT_CONTEXT.md` as a
+forward item is T8 (offline LLM-judge groundedness eval), tracked in `CURRENT_CONTEXT.md` as a
 P3 enhancement, not debt. TD-32 and TD-33 both came out of the operator's read of the six-file
 `КУРС2025` run on 2026-09-05 and both closed the same week; TD-31 closed 2026-09-05 with
 `419d5cd` and took TD-27's two load-bearing constraints with it, which is what left TD-27 answerable
