@@ -79,8 +79,9 @@ is that release, creates and pushes the annotated tag, and publishes. The PAT li
 
 ## Context Loading Policy
 
-Read on demand, not up front: `docs/archive/ENGINEERING_PLAN.md` for pipeline/console
-implementation, `docs/TECHNICAL_DEBT.md` for active debt.
+Read on demand, not up front: `docs/INVARIANTS.md` for product invariants,
+`docs/archive/ENGINEERING_PLAN.md` for pipeline/console implementation,
+`docs/TECHNICAL_DEBT.md` for active debt.
 
 **At session start:**
 1. Read `CURRENT_CONTEXT.md`
@@ -104,5 +105,7 @@ Flag any new technical debt for `docs/TECHNICAL_DEBT.md`
 When documents conflict:
 1. Explicit operator instruction in current session
 2. This CLAUDE.md (guardrails take precedence over all docs)
-3. `docs/archive/ENGINEERING_PLAN.md` (locked build spec — authoritative for architecture/stack/scope)
+3. `docs/INVARIANTS.md` (product invariants)
 4. `CURRENT_CONTEXT.md` (live status — authoritative for priorities/blockers)
+
+Historical reference, not ranked: `docs/archive/ENGINEERING_PLAN.md` (the original build spec).
