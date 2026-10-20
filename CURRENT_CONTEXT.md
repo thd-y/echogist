@@ -1,88 +1,45 @@
-# Current Context
+# CURRENT_CONTEXT
+Schema: 1 | Updated: 2026-10-20T05:42:36+03:00 | Basis: main@471575f | Dirty: 0 | Tag: v3.2.0
 
-**Updated:** 2026-10-12 · **v3.2.0 released**: structured outputs (TD-36 closed), all tiers on 5.5
-(TD-39 closed). Tag re-pointed 2026-10-12 (was `9d7644a`) to take in the F6 fix + tagging release.py.
-**Published from a rewritten history** as `thd-y/echogist`; the original is `echogist-private`.
-3.1.0 is the answer to its own first real run — TD-34, TD-35, TD-30, TD-29b and TD-36's announce
-half, MINOR because no artifact format moved; 3.0.0 carried TD-31's and TD-27's format breaks.
-Calibration, four runs: run 1 (7 RU lectures, Haiku, **$2.4003**) seeded the cost model; run 2
-(`КУРС2025`, 6, **balanced**, **$3.7246**) closed TD-31 + TD-33; **run 3** (same 6, 18h18m,
-first 3.0 run, **$4.4634**) is the clean measurement — 0 CJK slips, 6/6 transcripts reused by
-fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files; run 4 spent **$0**.
-**Authority:** [CLAUDE.md](../CLAUDE.md); TECHNICAL_DEBT TD-16 for the v2 rule's validation.
-**Max: ~88 lines** — only what the code and the CHANGELOG cannot. Cut, don't append.
+## Deliverable
+No active feature unit (no unit ID in any ledger). Last unit: state-file migration to repo root under the global handoff protocol, and invariants extraction.
 
-## Live invariants — break one and something regresses silently
+## State
+- [DONE] v3.2.0 released 2026-10-10: structured outputs (TD-36 closed), all tiers on 5.5 (TD-39 closed). Published from a rewritten history as `thd-y/echogist`; original is `echogist-private`.
+- [DONE] Tag v3.2.0 re-pointed 2026-10-12 (was 9d7644a) to take in the F6 fix + tagging release.py.
+- [DONE] CURRENT_CONTEXT.md moved to repo root. Pointers fixed in README.md:92, docs/TECHNICAL_DEBT.md:47, docs/archive/OPERATOR_TESTING_PLAYBOOK.md:158 (50c6784). Parent reports grep "docs/CURRENT_CONTEXT" = 0 lines.
+- [DONE] CLAUDE.md "State" and "State Update Protocol" sections removed; CLAUDE.md points to root CURRENT_CONTEXT.md (50c6784).
+- [DONE] 12 product invariants extracted verbatim from the old snapshot into docs/INVARIANTS.md (471575f), append-only ledger.
+- [WIP] 50c6784 and 471575f not pushed; main is 2 commits ahead of origin.
 
-- **The folder preview is AUTOMATIC and the three actions must agree with it.** `mp3` gets that
-  walk's file LIST, not the root. An interrupted walk is silent about the folder, never a verdict;
-  an empty PLAN means "already done" only if there were files to plan.
-- **The loop detector measures REPETITION SHAPE, not vocabulary** (TD-33). A stuck decoder repeats
-  one phrase verbatim (3-gram coverage 0.60-1.00); this lecturer repeats to teach (never above
-  0.20). The old unique-word ratio deleted 5172 words of real lecture. WHOLE blocks only, still.
-- **Two channels, from `summarize` AND `render`** (TD-29, TD-28). `log` = chatter, muted;
-  `notice` = act on it, loud: a DROPPED anchor, a phase citing NOTHING over a timecoded
-  transcript, a foreign script, a wrong-language document, an unfont-able character, an empty
-  title or essence field. **Do not merge them**; pass `notice=` to EVERY `validate_anchors`
-  call — the per-phase one drops.
-- **The script check has TWO halves** ([design](./designs/script-check.md)): `foreign_findings`
-  asks "is this script used here at all", `script_shares` "what SHARE is not the primary one"
-  (TD-30) — the first cannot see a wholesale switch, since `en` allows Cyrillic so quotations stay
-  silent. 0.25 is MEASURED from BOTH sides: run 3's six RU documents sit at 0.0013-0.0088, the
-  first real EN-over-RU document at 0.0042. Notation is not a script.
-- **One module, two engines** (`folder.py`): `convert_many` = parallel pool, `run_phase` =
-  strictly sequential. **Do not push the run through the pool** — the gate must price a whole
-  folder. Its plan is SORTED, not `os.walk` order. **The walk prunes `output` from `dirnames` and
-  never sees the ROOT**, so `_flow_folder` refuses a root that IS the artifact tree (TD-29b) — by
-  resolved path only: a folder the operator named `output` is theirs.
-- **Name-claiming** is in memory (`folder._plan_output_paths`) — an on-disk claim survived
-  `kill -9` as a fake artifact and poisoned dedup forever. One publish scheme,
-  `naming.publish_text`, on EVERY durable write. **Casefold is asymmetric ON PURPOSE:**
-  `_resume_key` folds, `naming.resolve_source` does not (folding dropped a recording).
-- **Grouping lives in the artifact's NAME, and the tree stays FLAT** (TD-27). A summary is
-  `<date>-<source stem>-<title>`; the date is the RUN's, taken ONCE per folder run (an 18h run
-  crosses midnight and would split a course in two). The source part truncates from the HEAD —
-  a download's noise is the site tag in front, the discriminator the lecture number at the back. The
-  cap `naming._MAX_SUMMARY_STEM` cannot rise alone: `render` re-runs `summary_stem` over the base,
-  so a longer stem splits the triplet silently. **Do not add a subdirectory** —
-  `transcript_sources`, `summary_index`, `_pick_transcript` and `_sweep_stale_resumes` are all
-  single-level `glob` and would find nothing. `paths` is the ONE layout definition; it computes
-  and never creates.
-- **Identity is CONTENT and lives in the transcript's NAME** (TD-31). `fp = sha256(size +
-  head/tail 1 MiB)[:16]`; both joins key on it, so a move or rename costs nothing and two courses
-  with identical filenames never share a transcript. **Taken ONCE from the original and inherited
-  forward** — a re-encode (1b) carries its parent's value or it re-buys the summary. Never put
-  metadata IN the .txt: `chunk._blocks` anchors it at `[00:00:00]`, citable past validation.
-- **Ctrl-C stops the run, not the app** — `folder.Cancelled` carries the partial report, the WHOLE
-  loop iteration is guarded (BaseException), and a resume partial is keyed by path + language +
-  tier, so a tier switch re-runs and never mixes.
-- **Essence block** is phase prose only; reconcile ALWAYS runs; every emitted string is
-  anchor-validated. **Two different answers to a short reply, on purpose:** an empty PHASE is a
-  paid call whose stretch of the recording would go missing, so it FAILS the file loud (TD-34,
-  costing one file — `folder.run_phase` carries on and `on_phase` already persisted the rest);
-  an empty title or essence field is one short reconcile call over intact prose, so it is a
-  `notice` and the run finishes (TD-36). **The failure then ends in ONE question, AFTER the
-  cycle** — at the failure an 18h run would sit on a y/N for hours. Scoped by TYPE
-  (`EmptyPhaseError`, a `SummarizeError` subclass so `_RECOVERABLE` is unchanged), never by
-  message text; **default YES**, alone among the paid gates; asked once, retries only the lost
-  files, and its report prices the retry, not the run.
-- **Cost model** projects output as `ratio x that call's input`. The input leg is near-exact over
-  a whole folder (0.9987x) but runs ~1.10x on ONE file, so the output ratio carries most, not all,
-  of the bias. **Re-seed a tier from its own "Actual cost" line: output/input, +~5%.** economy
-  0.52 and flagship 0.80 are guesses (TD-40); balanced **0.33** is measured (Sonnet 5 run 3
-  0.29513; on 5.5 one file 0.2772 vs 0.2828 on 5). **The duration projection is ~1.5x the bill**
-  (it multiplies the same ratio, so it rose with it). Token estimate: 3 rates by script.
-- **Key:** env, then gitignored `config/secrets.toml` — absent in WSL, so paid runs are
-  Windows-only. **`/mnt/c/Users/operator/Documents/echogist/output/` reads that tree from here, and
-  reading the saved `.json` beats reading the log** — run 3's loudest WARN named the wrong cause.
+## Decisions this cycle
+2026-10-20: state file lives at repo root, maintained via global working-context handoff protocol (replaces the project-local protocol) → operator, not yet in ledger
+2026-10-20: invariants extracted to docs/INVARIANTS.md as an append-only ledger (471575f) → operator, not yet in ledger (the file exists, but the decision is not recorded in TECHNICAL_DEBT or CHANGELOG)
+2026-10-20: proposal #5 (3.2.0 date mismatch) dropped; not a conflict, both dates true (released 2026-10-10, tag re-pointed 2026-10-12) → operator, not yet in ledger
 
-## Next
+## Open & blockers
+- [owner] Push 50c6784 and 471575f (docs-only, gate-exempt per CLAUDE.md; push per repo policy).
+- [owner] T8 offline LLM-judge groundedness eval: P3 enhancement, not debt (docs/TECHNICAL_DEBT.md:47, :297).
+- [owner] Open debts, all LOW: TD-37 (Windows-only branches not type-checked), TD-38 (dev venv is not the CI venv), TD-40 (economy and flagship on 5.5 unmeasured).
+- [owner] TD-40 next step: first real runs of economy (Haiku 5.5, `disabled`/`high`) and flagship (Opus 5.5, `medium`, always thinks). Paid runs are Windows-only. Re-seed each ratio from its tier's "Actual cost" line (output/input, +~5%); economy 0.52 and flagship 0.80 are guesses.
+- [owner] Increment 1b (mp3 re-encode rule): docs/designs/mp3-reencode-1b.md, DRAFT, NOT APPROVED, NOT IMPLEMENTED; needs /office-hours or /plan-eng-review first. Open questions: 222 MiB vs MB unit; `target_kbps` stored vs derived from `lame_quality`; whether the 222 MiB clause is redundant.
+- [owner] "Streaming" (old Next #3): UNCLEAR. No doc in the repo defines it; 1b does not cover streaming.
 
-1. **Structured outputs, never a forced tool (TD-36, 2026-10-10).** `balanced` =
-   `claude-sonnet-5-5` at `thinking = "between_tools"`, `effort = "high"` — left unset, a model
-   THINKS (Sonnet 5 did: 2x tokens and time). First real 5.5 run (занятие 3): $0.4275 vs $0.6706
-   on 5, 3 min vs 6, +4% prose, 305/305 anchors exact. economy = Haiku 5.5 (`disabled`/`high`),
-   flagship = Opus 5.5 (`medium`, always thinks) — UNMEASURED (TD-40). Next: their first runs.
-2. `win-smoke.bat` runs off `tests/fixtures/audio/smoke.mp3` (gitignored): no paid run needed.
-3. **CI runs the gate** (`ci.yml`: windows + ubuntu, 3.11, full lock), the only 3.11-on-Windows
-   run (dev is 3.12/WSL); its first caught a float-sum drift and 16 posix-only tests. Streaming; 1b.
+## Verification
+Not run. 50c6784 and 471575f are docs-only; nothing under echogist/, tests/, scripts/, config/ changed this cycle. No PASS carried forward.
+
+## Carry forward
+- PROPOSAL awaiting operator approval (doc-reconciler baseline 2026-10-20, not a decision): #3 demote docs/archive/ENGINEERING_PLAN.md in the CLAUDE.md authority order (archived "locked build spec" ranks above the live state file).
+- Calibration: run 1 (7 RU lectures, Haiku) $2.4003, see docs/TECHNICAL_DEBT.md:241-242 (TD-23/TD-24). Recorded only here: run 2 (КУРС2025, 6, balanced) $3.7246. Run 3 ($4.4634, 18h18m) is in docs/TECHNICAL_DEBT.md:155-158 and CHANGELOG.md:259; run 4 spent $0.
+- Run 3, recorded only here: 0 CJK slips, 6/6 transcripts reused by fingerprint, 1 loop block dropped where the old rule dropped 39 per 13 files.
+- First real 5.5 run (занятие 3), recorded only here: $0.4275 vs $0.6706 on Sonnet 5, 3 min vs 6, +4% prose, 305/305 anchors exact.
+- CI's first run caught 16 posix-only tests (recorded only here).
+- `win-smoke.bat` runs off gitignored `tests/fixtures/audio/smoke.mp3` (recorded only here); no paid run needed.
+
+## Read next
+- CLAUDE.md — authority order, hard constraints (proposal #3 target)
+- docs/TECHNICAL_DEBT.md#TD-40 (also TD-37, TD-38, T8 at :47) — open debts
+- docs/designs/mp3-reencode-1b.md — 1b draft and its open questions
+- docs/INVARIANTS.md — product invariants ledger
+
+Invariants: docs/INVARIANTS.md
