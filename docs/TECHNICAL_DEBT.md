@@ -60,6 +60,19 @@ with them. **Open now: TD-37, TD-38 and TD-40 (LOW)** — TD-36 and TD-39 closed
 closed 2026-09-06, the registry's two LOW entries answered the same day as its two HIGH ones;
 TD-29c closed 2026-09-24 and CI opened TD-37 and TD-38 the same day.
 
+**Open question, not debt: "Streaming"** (an old "Next" item). No document in the repo defines it,
+and increment 1b (`docs/designs/mp3-reencode-1b.md`) does not cover it. The operator decides
+whether it is a real item.
+
+**Measured runs recorded nowhere else** (moved from the retired `CURRENT_CONTEXT.md`, 2026-10-21):
+- Calibration run 2 (`КУРС2025`, 6 files, balanced): $3.7246. Run 1 is under TD-23/TD-24 below,
+  run 3 ($4.4634, 18h18m) under TD-34–TD-36 and in `CHANGELOG.md`; run 4 spent $0.
+- Run 3: 0 CJK slips, 6/6 transcripts reused by fingerprint, 1 loop block dropped where the old
+  rule dropped 39 per 13 files.
+- First real 5.5 run (занятие 3): $0.4275 vs $0.6706 on Sonnet 5, 3 min vs 6, +4% prose,
+  305/305 anchors exact.
+- CI's first run caught 16 posix-only tests.
+
 ---
 
 ## Closed debts (compact — verbose history in git)

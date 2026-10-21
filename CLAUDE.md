@@ -84,8 +84,8 @@ Read on demand, not up front: `docs/INVARIANTS.md` for product invariants,
 `docs/TECHNICAL_DEBT.md` for active debt.
 
 **At session start:**
-1. Read `CURRENT_CONTEXT.md`
-2. Report: active deliverable, blockers, git state (branch + dirty files)
+1. Read the open items of `docs/TECHNICAL_DEBT.md` and the newest unfinished plan in `docs/superpowers/plans/`, if any
+2. Report: active plan or open debts, blockers, git state (branch + dirty files)
 3. Do not read further docs until the task requires them
 4. If docs conflict with operator instruction — stop and ask
 
@@ -106,6 +106,6 @@ When documents conflict:
 1. Explicit operator instruction in current session
 2. This CLAUDE.md (guardrails take precedence over all docs)
 3. `docs/INVARIANTS.md` (product invariants)
-4. `CURRENT_CONTEXT.md` (live status — authoritative for priorities/blockers)
+4. `docs/TECHNICAL_DEBT.md` and the active plan in `docs/superpowers/plans/` (live status — authoritative for priorities/blockers)
 
 Historical reference, not ranked: `docs/archive/ENGINEERING_PLAN.md` (the original build spec).
