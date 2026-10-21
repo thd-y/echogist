@@ -93,7 +93,7 @@ Read on demand, not up front: `docs/INVARIANTS.md` for product invariants,
 
 Apply superpowers skills at these gates:
 - `brainstorming` — before any ambiguous or new-scope task
-- `writing-plans` — before any ADR-triggering implementation
+- `writing-plans` — before any multi-step implementation
 - `requesting-code-review` — before every commit touching non-trivial code
 
 Do not skip review gates for: DB, LLM prompts, evaluation, safety, CI/deploy.
