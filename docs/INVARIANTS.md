@@ -28,9 +28,9 @@
 - **Grouping lives in the artifact's NAME, and the tree stays FLAT** (TD-27). A summary is
   `<date>-<source stem>-<title>`; the date is the RUN's, taken ONCE per folder run (an 18h run
   crosses midnight and would split a course in two). The source part truncates from the HEAD —
-  a download's noise is the site tag in front, the discriminator the lecture number at the back. The
-  cap `naming._MAX_SUMMARY_STEM` cannot rise alone: `render` re-runs `summary_stem` over the base,
-  so a longer stem splits the triplet silently. **Do not add a subdirectory** —
+  a download's noise is the site tag in front, the discriminator the lecture number at the back.
+  `render` takes the `.json` stem as handed (sanitized, never re-capped), so the triplet shares
+  it even past the cap. **Do not add a subdirectory** —
   `transcript_sources`, `summary_index`, `_pick_transcript` and `_sweep_stale_resumes` are all
   single-level `glob` and would find nothing. `paths` is the ONE layout definition; it computes
   and never creates.

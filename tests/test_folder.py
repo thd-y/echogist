@@ -659,6 +659,17 @@ def test_two_copies_of_one_recording_are_planned_once(tmp_path: Path) -> None:
     assert plan.duplicates == ((b, a),)
 
 
+def test_the_shortest_name_is_the_original_of_a_copy_set(tmp_path: Path) -> None:
+    """A space sorts before a dot, so plain sorting made ``one (copy).mp4`` the original
+    and let it name the summary."""
+    one, copy = tmp_path / "one.mp4", tmp_path / "one (copy).mp4"
+    plan = folder.plan_run(
+        [one, copy], fingerprints={one: _FP_A, copy: _FP_A}, summarized=set(), transcripts={}
+    )
+    assert plan.to_transcribe == (one,)
+    assert plan.duplicates == ((copy, one),)
+
+
 def test_a_copy_of_a_summarized_recording_is_a_copy_not_a_purchase(tmp_path: Path) -> None:
     a, b = tmp_path / "a.mp4", tmp_path / "b.mp4"
     plan = folder.plan_run(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -362,6 +363,23 @@ def test_save_creates_config_dir(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "settings.json"
     save_settings(default_settings(), path)
     assert path.is_file()
+
+
+def test_a_failed_settings_write_keeps_the_previous_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A kill mid-write must not leave a truncated settings.json that fails every launch."""
+    path = tmp_path / "settings.json"
+    first = replace(default_settings(), summary_language="en", output_format="md")
+    save_settings(first, path)
+
+    def _boom(*_args: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("os.replace", _boom)
+    with pytest.raises(OSError):
+        save_settings(default_settings(), path)
+    assert load_settings(path) == first
 
 
 def test_invalid_language_errors(tmp_path: Path) -> None:

@@ -22,7 +22,7 @@ def test_plan_phases_balances_into_k_bins_no_tail() -> None:
     text = _timecoded(12)
     cfg = ChunkConfig(phase_target_tokens=4_000)
     phases = chunk.plan_phases(text, cfg, estimate=lambda _line: 1_000)  # 12 * 1000 = 12000
-    # K = ceil(12000 / 4000) = 3, balanced -> 4 / 4 / 4 (same binning math as plan_chunks).
+    # K = ceil(12000 / 4000) = 3, balanced -> 4 / 4 / 4.
     assert [p.index for p in phases] == [1, 2, 3]
     assert all(p.total == 3 for p in phases)
     assert [len(p.text.splitlines()) for p in phases] == [4, 4, 4]

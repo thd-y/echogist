@@ -83,7 +83,7 @@ def summary_stem(title: str, *, fallback: str, limit: int = _MAX_SUMMARY_STEM) -
     empty/all-illegal title still yields ``fallback``.
 
     ``limit`` defaults to the whole budget, which is what :func:`echogist.render.render`
-    passes when it re-derives the stem it was handed. :func:`summary_artifact_stem` passes
+    uses for a title-derived stem. :func:`summary_artifact_stem` passes
     the remainder left after the date and the source part.
     """
     stem = sanitize_stem(title, fallback=fallback)
@@ -145,10 +145,9 @@ def summary_artifact_stem(
     title.
 
     **The total is capped at the same ``_MAX_SUMMARY_STEM`` the title alone used to have**,
-    and that matters beyond MAX_PATH: :func:`echogist.render.render` re-runs
-    :func:`summary_stem` over the ``base`` it is handed, so a stem longer than the cap
-    would come back SHORTER for the ``.pdf`` than for the ``.json`` and split the triplet,
-    silently, with the suite green.
+    which keeps the triplet's paths inside MAX_PATH. :func:`echogist.render.render` takes
+    the ``base`` it is handed as is (sanitized, never re-capped), so a deduped ``-2`` stem
+    past the cap still names the ``.pdf`` exactly as the ``.json``.
 
     The title part is omitted when it is empty or equals the source — the F10 fallback
     title is built from the source stem (:func:`echogist.summarize._fallback_title`), and

@@ -614,9 +614,10 @@ def _run_summary_with_retry(
 ) -> None:
     """One file's whole summarize cycle: the run, then the empty-phase retry question.
 
-    The single-file mirror of what ``_flow_run`` does for a folder. At most ONE retry —
-    the offer exists because the failure is intermittent, and a second empty phase on the
-    same file is a reason to go look at the transcript, not to keep buying calls.
+    The single-file mirror of what ``_flow_run`` does for a folder. At most ONE asked
+    retry (preceded by one automatic retry when ``auto_accept_any_cost`` is on) — the
+    offer exists because the failure is intermittent, and an empty phase that survives
+    it is a reason to go look at the transcript, not to keep buying calls.
     """
     ui = _ui(deps)
     stopped: list[Path] = []
@@ -1348,9 +1349,10 @@ def _flow_run(deps: Deps, root: Path | None = None, *, summarize_after: bool = T
         ui.info(f"Skipping {len(plan.summarized)} file(s) already summarized (not re-paid for).")
     if plan.duplicates:
         rel = {f.path: f.rel for f in result.files}
+        why = "same recording, not re-paid for" if summarize_after else "same recording"
         ui.warn(
             f"Skipping {len(plan.duplicates)} file(s) that are copies of another file in this "
-            "folder (same recording, not re-paid for)."
+            f"folder ({why})."
         )
         ui.table(
             "Copies skipped",

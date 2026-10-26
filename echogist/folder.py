@@ -475,7 +475,7 @@ class Plan:
 
     @property
     def sources(self) -> tuple[Path, ...]:
-        """Every source the plan covers, in bucket order."""
+        """Every source the plan will act on, in bucket order; :attr:`duplicates` excluded."""
         return self.summarized + tuple(src for src, _ in self.ready) + self.to_transcribe
 
 
@@ -513,8 +513,9 @@ def plan_run(
     todo: list[Path] = []
     copies: list[tuple[Path, Path]] = []
     first: dict[str, Path] = {}
-    # Sorted here so "the original" is the same file on every run, whatever the walk order.
-    for source in sorted(sources):
+    # Shortest name first, so "the original" of a copy set is the plain name, not
+    # "x (copy).mp4" (" " sorts before "."); the path breaks ties, so it is stable per run.
+    for source in sorted(sources, key=lambda p: (len(p.name), p)):
         fingerprint = fingerprints.get(source)
         if fingerprint is None:
             todo.append(source)
@@ -538,7 +539,7 @@ def plan_run(
         summarized=tuple(sorted(finished)),
         ready=tuple(sorted(ready)),
         to_transcribe=tuple(sorted(todo)),
-        duplicates=tuple(copies),
+        duplicates=tuple(sorted(copies)),
     )
 
 

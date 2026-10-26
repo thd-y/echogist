@@ -379,6 +379,12 @@ def test_render_sanitizes_an_unsafe_base(tmp_path: Path) -> None:
     assert "/" not in out.name and "\\" not in out.name
 
 
+def test_render_keeps_a_deduped_json_stem_verbatim(tmp_path: Path) -> None:
+    # A capped .json stem deduped to "-2" is past the cap; a re-cut would split the triplet.
+    base = "a" * 100 + "-2"
+    assert render.render(_summary(), tmp_path, "md", base=base).stem == base
+
+
 # --------------------------------------------------------------------------- #
 # PDF — real fpdf2 render; assert the bundled Cyrillic font is embedded
 # --------------------------------------------------------------------------- #

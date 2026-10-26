@@ -156,3 +156,28 @@ def test_summary_input_drops_filler_and_says_so(tmp_path: Path) -> None:
     text = smoke_run.summary_input(saved, config.ChunkConfig(), emit=said.append)
     assert "Субтитры" not in text
     assert any("1 repetitive block" in line for line in said)
+
+
+def test_run_smoke_saves_the_transcript_with_the_configured_block_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The menu passes ``block_seconds`` from config; a smoke run that drops it would
+    exercise a different block grid the day the two defaults diverge."""
+    clip = tmp_path / "clip.mp3"
+    clip.write_bytes(b"audio")
+    seen: dict[str, object] = {}
+
+    class _Stop(Exception):
+        pass
+
+    def _save(*_args: object, **kwargs: object) -> Path:
+        seen.update(kwargs)
+        raise _Stop
+
+    monkeypatch.setattr(smoke_run.transcribe, "transcribe", lambda *_a, **_k: object())
+    monkeypatch.setattr(smoke_run.transcribe, "save_transcript", _save)
+    with pytest.raises(_Stop):
+        smoke_run.run_smoke(clip=clip, base=tmp_path, env={}, log=lambda _m: None)
+
+    expected = smoke_run.config.load_model_config().transcript.block_seconds
+    assert seen["block_seconds"] == expected

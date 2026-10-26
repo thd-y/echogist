@@ -2271,8 +2271,24 @@ def test_folder_run_summarizes_a_duplicated_recording_once(
     assert calls["summarize"] == 1
     assert calls["transcribe"] == 1
     assert ("table", "Copies skipped") in stub.messages
-    # The first in sorted order is kept: " " sorts before ".", so the copy's name wins here.
-    assert ("table-row", "one.mp4: same as one (copy).mp4") in stub.messages
+    # The shortest name is the original, so "(copy)" never names the summary.
+    assert ("table-row", "one (copy).mp4: same as one.mp4") in stub.messages
+
+
+def test_a_transcript_only_folder_run_does_not_promise_a_skipped_purchase(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing is bought on this run, so the copy warning must not talk about re-paying."""
+    _offline_scan(monkeypatch)
+    library = tmp_path / "library"
+    one = _lecture(library, "one.mp4")
+    (library / "one (copy).mp4").write_bytes(one.read_bytes())
+    deps, stub, _ = _make_deps(tmp_path, ["folder", str(library), "transcript", False, "exit"])
+
+    assert menu.run_menu(deps) == 0
+
+    warnings = [text for kind, text in stub.messages if kind == "warn" and "copies" in text]
+    assert warnings and not any("re-paid" in text for text in warnings)
 
 
 def test_folder_run_skips_the_mp3_when_declined(

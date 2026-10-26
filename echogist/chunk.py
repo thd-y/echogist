@@ -217,7 +217,7 @@ def block_timecodes(text: str) -> tuple[str, ...]:
 def _bin_count(total_tokens: int, target_tokens: int, n_blocks: int) -> int:
     """``K = ceil(total / target)``, at least 1, never more bins than blocks.
 
-    Shared by :func:`plan_chunks` (map) and :func:`plan_phases` (synthesis): K is
+    Used by :func:`plan_phases`: K is
     COMPUTED from the chosen target, so it scales with transcript length rather than
     being a fixed number of pieces. Clamped to ``n_blocks`` so a tiny target never asks
     for more bins than there are whole blocks to fill (we never split mid-block).
@@ -233,10 +233,9 @@ def _bin_blocks(sizes: list[int], k: int) -> list[list[int]]:
     are near-even runs of consecutive blocks with no disproportionate tail. Empty bins
     (a rounding edge with a skewed size distribution) are dropped, so the result has 1
     to ``k`` non-empty bins that together cover every index exactly once, in order.
-    Pure and overlap-free — overlap, if any, is the caller's concern (map adds it,
-    phases do not). Self-defensive: empty ``sizes`` or a non-positive ``k`` returns no
-    bins rather than dividing by zero (callers already guard this, but the helper is
-    shared and must not blow up on a degenerate call).
+    Pure and overlap-free — phases never add overlap. Self-defensive: empty ``sizes``
+    or a non-positive ``k`` returns no bins rather than dividing by zero (callers
+    already guard this, but the helper must not blow up on a degenerate call).
     """
     total_tokens = sum(sizes)
     if not sizes or k <= 0:
@@ -279,8 +278,8 @@ def plan_phases(
 ) -> list[Phase]:
     """Split ``text`` into balanced, CONTIGUOUS, non-overlapping phases for synthesis.
 
-    The same midpoint token-binning as :func:`plan_chunks`, but ``K`` is computed from
-    ``cfg.phase_target_tokens`` (coarser than the map target, so a 3h lecture lands at
+    Midpoint token-binning; ``K`` is computed from
+    ``cfg.phase_target_tokens`` (so a 3h lecture lands at
     ~3-4 phases, a 6h one at ~6-8 — K SCALES, it is not capped), and NO overlap is added:
     the phases partition the blocks, each block in exactly one phase. Short material
     under one phase-target collapses to a single phase (K=1, the whole transcript);

@@ -139,7 +139,8 @@ def run_smoke(
     """Drive ``clip`` through extract → transcribe → (gated) summarize+render.
 
     Returns the artifacts produced. Mirrors the menu's local-file flow ordering so
-    this exercises the real wiring, not a parallel pipeline. The summary stage is
+    this exercises the real wiring, not a parallel pipeline — except the per-phase
+    overflow check, which a ~2-min clip can never trip. The summary stage is
     skipped unless :func:`live_summary_enabled` says go (killswitch).
     """
     emit = log
@@ -164,7 +165,11 @@ def run_smoke(
     # same artifacts the menu does, so it names them the same way.
     fingerprint = naming.source_fingerprint(clip)
     tpath = transcribe.save_transcript(
-        transcript, paths.transcripts(base), clip.stem, fingerprint=fingerprint
+        transcript,
+        paths.transcripts(base),
+        clip.stem,
+        fingerprint=fingerprint,
+        block_seconds=model_config.transcript.block_seconds,
     )
     emit(f"Saved transcript: {tpath}")
     artifacts.append(tpath)

@@ -23,6 +23,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from echogist import naming
+
 VALID_LANGUAGES: tuple[str, ...] = ("ru", "en")
 VALID_FORMATS: tuple[str, ...] = ("pdf", "md")
 
@@ -736,7 +738,8 @@ def save_settings(settings: Settings, path: Path | None = None) -> None:
     _validate_settings(asdict(settings), "settings")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(asdict(settings), indent=2, ensure_ascii=False) + "\n"
-    path.write_text(payload, encoding="utf-8")
+    # Atomic: a kill mid-write would leave a truncated file that fails every launch.
+    naming.publish_text(path, payload)
 
 
 # --------------------------------------------------------------------------- #

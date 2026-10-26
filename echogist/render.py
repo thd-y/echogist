@@ -17,9 +17,8 @@ reading a self-check question does not hand the reader its answer.
 file's stem for the ``.pdf``/``.md`` it writes to ``output/summaries/`` (the ``base``
 argument is normally ``saved_json_path.stem``), so ``.json``/``.pdf``/``.md`` share one
 base name (the .json one level down); only the chosen extension is deduped here. The
-stem itself comes from :func:`naming.summary_artifact_stem`, and the re-derivation here
-runs :func:`naming.summary_stem` over it — which is why that function's cap is the cap on
-the WHOLE artifact stem: a longer one would come back shorter here and split the triplet.
+stem itself comes from :func:`naming.summary_artifact_stem`; here it is only sanitized,
+never re-capped, so a deduped ``-2`` stem past the cap keeps the triplet together.
 
 **Cyrillic, no tofu.** The PDF embeds the **bundled** DejaVuSans (regular + bold)
 shipped under ``echogist/assets/fonts/`` — fpdf2's built-in fonts are Latin-1 only
@@ -241,10 +240,11 @@ def render(
     ``fmt`` is ``"pdf"`` (default) or ``"md"`` — the validated
     ``settings.output_format``. ``base`` is normally the stem of the saved F13
     ``.json`` (``saved_json_path.stem``) so the ``.json``/``.pdf``/``.md`` share one
-    name; when omitted it is derived from the title. Either way the name runs
-    through :func:`naming.summary_stem` (Windows-safe, length-capped) — idempotent
-    for an already-safe json stem, but it means a raw ``base`` from any caller can
-    never reintroduce a path-traversal/reserved-name hole. Only the chosen
+    name; when omitted it is derived from the title via :func:`naming.summary_stem`.
+    A passed ``base`` is only sanitized, never re-capped: a capped json stem deduped to
+    ``-2`` is past the cap, and cutting it again would split the triplet. Sanitizing
+    still means a raw ``base`` from any caller can never reintroduce a
+    path-traversal/reserved-name hole. Only the chosen
     extension is deduped here. Offline; the PDF path embeds DejaVuSans for Cyrillic.
 
     Two channels, as everywhere else: ``log`` is progress chatter, ``notice`` is what the
@@ -256,7 +256,11 @@ def render(
         raise RenderError(f"Unknown output format '{fmt}'; expected 'pdf' or 'md'.")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = naming.summary_stem(base if base is not None else summary.title, fallback="summary")
+    stem = (
+        naming.sanitize_stem(base, fallback="summary")
+        if base is not None
+        else naming.summary_stem(summary.title, fallback="summary")
+    )
     suffix = ".pdf" if fmt == "pdf" else ".md"
     out_path = naming.dedup_path(out_dir, stem, suffix)
     log(f"Rendering {fmt.upper()} summary -> {out_path.name}")
