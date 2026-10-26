@@ -47,6 +47,35 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   calls per affected file. **Trigger: a folder total that visibly disagrees with the Anthropic
   console, or the next change to `on_cost` / `_report_run`.**
 
+- **TD-42 — leftovers of the 2026-10-26 audit** · LOW · created 2026-10-26. The audit's money
+  findings were fixed on branch `fix/audit-1-4` (resume keyed by fingerprint, folder copies
+  never bought, smoke run fed the real timecoded input, atomic resume write). Not fixed, each
+  small and deliberate:
+  1. **Summary triplet can split its name.** `render.render` re-runs `naming.summary_stem` over
+     the `base` it is handed; a 100-char `.json` stem deduped to `-2` comes back cut to 100, so
+     the `.pdf`/`.md` may take the first run's name (e.g. run 1 made `.md`, run 2 `.pdf`). Fix:
+     use a passed `base` verbatim, sanitize only the title fallback.
+  2. **Two timecode parsers.** `summarize._tc_seconds` and `chunk._block_start_seconds` both
+     parse `[HH:MM:SS]` and differ on bad input (inf vs None). Fix: one calls the other.
+  3. **Stale docstrings.** `chunk._bin_count` / `chunk.plan_phases` compare themselves to
+     `plan_chunks`, which no longer exists; `menu._run_summary_with_retry` says "at most ONE
+     retry", but with `auto_accept_any_cost` there is an automatic one plus the asked one;
+     `folder.Plan.sources` says "every source" but excludes `duplicates`; `run_smoke` says it
+     mirrors the menu, but it has no per-phase overflow check (harmless for a ~2-min clip).
+  4. **Copy handling wording.** The original of a set of copies is the first in sorted order,
+     so `one (copy).mp4` beats `one.mp4` (space sorts before dot) and names the summary; a
+     re-encode sitting next to its parent is listed as a "copy"; the copy warning says "not
+     re-paid for" on the free transcript-only run too.
+  5. **Non-atomic settings write.** `config.save_settings` uses plain `write_text`; a kill
+     mid-write leaves a corrupt `settings.json` that fails loud on the next launch until deleted.
+  6. **Smoke drift.** `smoke_run.run_smoke` calls `save_transcript` without
+     `block_seconds=model_config.transcript.block_seconds` (both default 60 today).
+  7. **Accepted at the fix.** A resume partial written under the old PATH key before the upgrade
+     is unreachable (one re-pay of that run, file stays in `.resume/`); a hard-killed
+     `publish_text` leaves `*.json.part` litter the resume sweep does not clean.
+  **Trigger: the next change to `render.py`, `naming.py`, `folder.plan_run` or
+  `scripts/smoke_run.py`; take the items in that file then.**
+
 The registry was fully closed on 2026-08-03 (TD-9 and TD-17 implemented, TD-7 and TD-20 WONTFIX,
 branch `chore/close-tech-debt`); TD-22 through TD-28 are the entries since, and all of them are now
 closed: TD-22, TD-25 and TD-26 on 2026-09-04, TD-23/TD-24 the day after the first full folder
@@ -317,9 +346,11 @@ whether it is a real item.
   fabrication). "the author-named point" absent because Whisper garbled the surname upstream (the concept — V1 / decision
   speed — IS covered); not a synthesis miss. T8 offline LLM-judge eval remains a P3 follow-on. Parallel synthesis
   OUT OF SCOPE (operator). Known limit (accepted, NARROWED by bulk v3 increment 0): artifact-resume is now
-  keyed on a hash of the resolved source PATH, so two different files can no longer share a partial. Editing a
-  transcript IN PLACE still reuses the same key — delete `raw/.resume/` before re-summarizing an edited
-  transcript whose previous run died mid-way.
+  keyed on a hash of the recording's FINGERPRINT (the resolved path only when the transcript name carries none),
+  so two different recordings can no longer share a partial, and the video and its saved transcript resume the
+  same work. Any re-made transcript of the SAME recording reuses that key — edited in place, saved as an edited
+  copy that keeps the fingerprint, or re-transcribed after a failed run — and `_load_resume` checks only the phase
+  count. Delete `raw/.resume/` before re-summarizing such a transcript whose previous run died mid-way.
 - **TD-18 — Phase headings had no document meta-frame** ✓ CLOSED 2026-06-27 (was MEDIUM). `emit_reconcile` returns
   a `phase_headings` array; `_apply_normalized_headings` swaps the forward-only headings into one coherent outline,
   fail-soft on count/empty mismatch; K=1 keeps its heading; `validate_anchors` strips inline timecodes from

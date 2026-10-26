@@ -36,9 +36,9 @@ if str(_APP_ROOT) not in sys.path:  # allow `python scripts/smoke_run.py` to imp
     sys.path.insert(0, str(_APP_ROOT))
 
 from echogist import (  # noqa: E402
+    chunk,
     config,
     extract,
-    guard,
     naming,
     paths,
     provision,
@@ -81,6 +81,18 @@ def live_summary_enabled(env: Mapping[str, str], api_key: str | None) -> tuple[b
             "(killswitch: no key, no call).",
         )
     return (True, f"Live summary enabled ({_LIVE_ENV} + key present).")
+
+
+def summary_input(
+    saved: Path, chunk_cfg: config.ChunkConfig, *, emit: Callable[[str], object]
+) -> str:
+    """The text the menu hands the summarizer: the saved, timecoded checkpoint with the
+    TD-26 filler blocks dropped — not ``Transcript.text``, which carries no timecodes.
+    The drop is reported, as the menu reports it (CLAUDE.md: never a silent skip)."""
+    text, dropped = chunk.drop_degenerate_blocks(saved.read_text(encoding="utf-8"), chunk_cfg)
+    if dropped:
+        emit(f"Dropped {len(dropped)} repetitive block(s) from the synthesis input.")
+    return text
 
 
 def missing_artifacts(paths: Iterable[Path]) -> list[Path]:
@@ -165,11 +177,8 @@ def run_smoke(
         return artifacts
 
     tier = model_config.tier(settings.model_tier)
-    verdict = guard.check_overflow(transcript.text, tier, model_config.guard)
-    if verdict.over_budget:  # a ~2-min smoke clip should never trip this
-        raise SmokeError(guard.overflow_message(verdict, tier))
     result = summarize.summarize_auto(
-        transcript.text,
+        summary_input(tpath, model_config.chunk, emit=emit),
         tier,
         model_config.summarize,
         chunk_cfg=model_config.chunk,

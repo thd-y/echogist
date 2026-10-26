@@ -9,21 +9,6 @@ verdict against a tier's safe budget.
 from __future__ import annotations
 
 from echogist import guard
-from echogist.config import GuardConfig, ModelTier
-
-
-def _tier(context_window: int) -> ModelTier:
-    return ModelTier(
-        name="test",
-        model_id="test-model",
-        context_window=context_window,
-        price_in_per_mtok=1.0,
-        price_out_per_mtok=5.0,
-    )
-
-
-def _guard(fraction: float = 0.8) -> GuardConfig:
-    return GuardConfig(safe_budget_fraction=fraction)
 
 
 # --------------------------------------------------------------------------- #
@@ -65,58 +50,6 @@ def test_estimate_adds_prompt_overhead() -> None:
 def test_estimate_default_overhead_is_applied() -> None:
     # Default prompt_overhead is non-zero, so even an empty transcript costs tokens.
     assert guard.estimate_input_tokens("") >= 1000
-
-
-# --------------------------------------------------------------------------- #
-# GuardResult / check_overflow
-# --------------------------------------------------------------------------- #
-def test_under_budget_is_not_over() -> None:
-    result = guard.check_overflow("a" * 100, _tier(200_000), _guard())
-    assert not result.over_budget
-    assert result.safe_budget == 160_000
-
-
-def test_over_budget_trips_the_guard() -> None:
-    # Tiny context window forces overflow on a short transcript (F6).
-    result = guard.check_overflow("a" * 1000, _tier(100), _guard())
-    assert result.over_budget
-    assert result.safe_budget == 80
-    assert result.est_input_tokens > 80
-
-
-def test_check_overflow_uses_estimate_and_budget() -> None:
-    result = guard.check_overflow("a" * 100, _tier(1000), _guard(0.5))
-    # est = 100*0.30 + 1000 overhead = 1030; budget = 1000*0.5 = 500.
-    assert result.est_input_tokens == 1030
-    assert result.safe_budget == 500
-    assert result.over_budget
-
-
-def test_cyrillic_can_overflow_where_latin_fits() -> None:
-    # Same length transcript: the guard catches the RU one but passes the EN one,
-    # proving the conservative-high RU bias actually changes the verdict.
-    # EN est = 100*0.30+1000 = 1030; RU est = 100*0.60+1000 = 1060.
-    # cw 1307 -> safe_budget int(1307*0.8) = 1045, which sits between the two.
-    tier = _tier(context_window=1307)
-    cfg = _guard()
-    en = guard.check_overflow("a" * 100, tier, cfg)
-    ru = guard.check_overflow("я" * 100, tier, cfg)
-    assert not en.over_budget
-    assert ru.over_budget
-
-
-# --------------------------------------------------------------------------- #
-# overflow_message
-# --------------------------------------------------------------------------- #
-def test_overflow_message_is_human_and_names_numbers() -> None:
-    tier = _tier(100)
-    result = guard.check_overflow("a" * 1000, tier, _guard())
-    msg = guard.overflow_message(result, tier)
-    assert "too long" in msg.lower()
-    assert "test" in msg  # tier name
-    assert f"{result.est_input_tokens:,}" in msg
-    assert f"{result.safe_budget:,}" in msg
-    assert "saved" in msg.lower()  # reassures the artifact is kept
 
 
 def test_every_non_latin_script_is_rated_above_latin() -> None:

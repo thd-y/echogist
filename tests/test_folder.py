@@ -648,6 +648,33 @@ def test_a_source_with_a_summary_on_disk_is_not_re_paid_for(tmp_path: Path) -> N
     assert plan.ready == ()
 
 
+def test_two_copies_of_one_recording_are_planned_once(tmp_path: Path) -> None:
+    """Same bytes under two names (a re-download, ``lecture (1).mp4``) is ONE recording.
+    Planned twice, it was transcribed twice and its summary bought twice."""
+    a, b = tmp_path / "A" / "lecture.mp4", tmp_path / "B" / "lecture (1).mp4"
+    plan = folder.plan_run(
+        [b, a], fingerprints={a: _FP_A, b: _FP_A}, summarized=set(), transcripts={}
+    )
+    assert plan.to_transcribe == (a,)
+    assert plan.duplicates == ((b, a),)
+
+
+def test_a_copy_of_a_summarized_recording_is_a_copy_not_a_purchase(tmp_path: Path) -> None:
+    a, b = tmp_path / "a.mp4", tmp_path / "b.mp4"
+    plan = folder.plan_run(
+        [a, b], fingerprints={a: _FP_A, b: _FP_A}, summarized={_FP_A}, transcripts={}
+    )
+    assert plan.summarized == (a,)
+    assert plan.duplicates == ((b, a),)
+
+
+def test_sources_without_a_fingerprint_are_never_merged(tmp_path: Path) -> None:
+    a, b = tmp_path / "a.mp4", tmp_path / "b.mp4"
+    plan = folder.plan_run([a, b], fingerprints={}, summarized=set(), transcripts={})
+    assert plan.to_transcribe == (a, b)
+    assert plan.duplicates == ()
+
+
 def test_two_courses_with_identical_names_never_share_a_transcript(tmp_path: Path) -> None:
     """THE bug (TD-31). Live on the operator's disk, not a constructed edge case.
 

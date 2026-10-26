@@ -458,8 +458,9 @@ def convert_many(
 class Plan:
     """What a folder run will actually do, decided before anything runs.
 
-    Three buckets, and every source lands in exactly one: ``summarized`` is finished
-    work, ``ready`` needs only the paid phase, ``to_transcribe`` needs both phases.
+    Four buckets, and every source lands in exactly one: ``summarized`` is finished
+    work, ``ready`` needs only the paid phase, ``to_transcribe`` needs both phases, and
+    ``duplicates`` is a copy of another source in the same run.
     """
 
     #: Already has a summary on disk (the TD-22 back-link). Nothing to do, nothing to pay.
@@ -468,6 +469,9 @@ class Plan:
     ready: tuple[tuple[Path, Path], ...]
     #: Needs transcribing first.
     to_transcribe: tuple[Path, ...]
+    #: ``(copy, original)``: same fingerprint as an earlier source, so the same recording.
+    #: Not in :attr:`sources` — the original's work covers it, and a copy is never bought.
+    duplicates: tuple[tuple[Path, Path], ...] = ()
 
     @property
     def sources(self) -> tuple[Path, ...]:
@@ -507,11 +511,18 @@ def plan_run(
     finished: list[Path] = []
     ready: list[tuple[Path, Path]] = []
     todo: list[Path] = []
-    for source in sources:
+    copies: list[tuple[Path, Path]] = []
+    first: dict[str, Path] = {}
+    # Sorted here so "the original" is the same file on every run, whatever the walk order.
+    for source in sorted(sources):
         fingerprint = fingerprints.get(source)
         if fingerprint is None:
             todo.append(source)
             continue
+        if fingerprint in first:  # a copy: the summarized check below would miss it in-run
+            copies.append((source, first[fingerprint]))
+            continue
+        first[fingerprint] = source
         if fingerprint in summarized:
             finished.append(source)
             continue
@@ -527,6 +538,7 @@ def plan_run(
         summarized=tuple(sorted(finished)),
         ready=tuple(sorted(ready)),
         to_transcribe=tuple(sorted(todo)),
+        duplicates=tuple(copies),
     )
 
 

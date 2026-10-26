@@ -465,9 +465,11 @@ def write_summary_json(summary: Summary, path: Path) -> None:
     a re-run finds the same partial and skips the phases already on it. Reuses the same
     ``_summary_json`` round-trip :func:`echogist.render.load_summary` reads back, so the
     persisted partial reconstructs verbatim. The menu owns the path and the cleanup.
+    Atomic, so a kill mid-write cannot leave a corrupt partial that ``menu._load_resume``
+    would drop, re-paying every phase already on it.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_summary_json(summary), encoding="utf-8")
+    naming.publish_text(path, _summary_json(summary))
 
 
 # --------------------------------------------------------------------------- #

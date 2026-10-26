@@ -2255,6 +2255,26 @@ def test_folder_run_keeps_the_mp3_when_asked(
     assert calls["extract"] == 2, "one MP3 per file, like the single-file flow"
 
 
+def test_folder_run_summarizes_a_duplicated_recording_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _offline_scan(monkeypatch)
+    library = tmp_path / "library"
+    one = _lecture(library, "one.mp4")
+    (library / "one (copy).mp4").write_bytes(one.read_bytes())  # same bytes: same recording
+    deps, stub, calls = _make_deps(
+        tmp_path, ["folder", str(library), "summary", True, True, "exit"]
+    )
+
+    assert menu.run_menu(deps) == 0
+
+    assert calls["summarize"] == 1
+    assert calls["transcribe"] == 1
+    assert ("table", "Copies skipped") in stub.messages
+    # The first in sorted order is kept: " " sorts before ".", so the copy's name wins here.
+    assert ("table-row", "one.mp4: same as one (copy).mp4") in stub.messages
+
+
 def test_folder_run_skips_the_mp3_when_declined(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2448,6 +2468,59 @@ def test_a_partial_from_another_language_is_not_spliced_into_this_run(tmp_path: 
     assert len({ru, en, flagship}) == 3
     # ...and the identity is still case-insensitive on the path, which is why it is hashed.
     assert ru == menu._resume_key(tmp_path / "LECTURE.txt", language="ru", tier="economy")
+
+
+def test_resume_key_follows_the_recording_not_the_file(tmp_path: Path) -> None:
+    """One recording reaches the summary through two paths: the video in the single-file
+    flow and its saved ``.txt`` in the recovery flow. Keyed on the path, the recovery
+    retry never found the partial the failed run left, and re-paid every phase."""
+    fp = "0123456789abcdef"
+    media, txt = tmp_path / "lecture.mp4", tmp_path / f"2026-10-26-lecture-{fp}.txt"
+    key = partial(menu._resume_key, fingerprint=fp, language="ru", tier="economy")
+
+    assert key(media) == key(txt)
+    assert key(media) != menu._resume_key(media, fingerprint=fp, language="en", tier="economy")
+    assert menu._resume_key(media) != menu._resume_key(txt)  # no fingerprint: the path, as before
+
+
+def test_saved_transcript_retry_resumes_a_failed_single_file_run(tmp_path: Path) -> None:
+    _write_settings(tmp_path, model_tier="economy")
+    fp = "0123456789abcdef"
+    tdir = tmp_path / "output" / "transcripts"
+    tdir.mkdir(parents=True)
+    big = "\n".join(f"[00:{m:02d}:00] " + "слово " * 400 for m in range(50))  # K>1
+    (tdir / f"2026-06-16-clip-{fp}.txt").write_text(big, encoding="utf-8")
+    # The partial the single-file flow left: keyed by the VIDEO's path and its fingerprint.
+    key = menu._resume_key(tmp_path / "clip.mp4", fingerprint=fp, language="ru", tier="economy")
+    resume_path = tmp_path / "output" / "summaries" / "raw" / ".resume" / f"{key}.json"
+    summarize.write_summary_json(
+        summarize._running_summary(
+            [SynthesisSection("Done phase", "prior prose", ("[00:00:00]",))], [], [], "ru"
+        ),
+        resume_path,
+    )
+    captured: dict[str, Any] = {}
+
+    def summarize_fn(
+        text: str, tier: Any, cfg: Any, *, resume_from: Any = None, **_kw: Any
+    ) -> SummarizeResult:
+        captured["resume_from"] = resume_from
+        return SummarizeResult(summary=_summary(), input_tokens=1, output_tokens=1)
+
+    def render_fn(summary: Any, out_dir: Path, fmt: str, *, base: str, **_kw: Any) -> Path:
+        return Path(out_dir) / f"{base}.{fmt}"
+
+    deps = menu.Deps(
+        ui=StubUI(["single", "transcript", "0", "exit"]),
+        summarize=summarize_fn,
+        render=render_fn,
+        get_api_key=lambda: "sk-test",
+        base=tmp_path,
+        settings_path=tmp_path / "settings.json",
+    )
+    assert menu.run_menu(deps) == 0
+    rf = captured["resume_from"]
+    assert rf is not None and len(rf.synthesis) == 1  # the failed run's phase is not re-paid
 
 
 # --------------------------------------------------------------------------- #

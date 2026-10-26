@@ -126,3 +126,33 @@ def test_model_dir_absolute_passes_through(tmp_path: Path) -> None:
     abs_dir = (tmp_path / "abs").resolve()
     mc = _model_config(str(abs_dir))
     assert smoke_run.model_dir(mc, tmp_path) == abs_dir
+
+
+# --------------------------------------------------------------------------- #
+# summary_input — the smoke run feeds the model what the menu feeds it
+# --------------------------------------------------------------------------- #
+def test_summary_input_is_the_saved_timecoded_transcript(tmp_path: Path) -> None:
+    # Transcript.text joins segments WITHOUT timecodes, so a smoke run that summarized it
+    # dropped every anchor and still passed. The saved checkpoint carries them.
+    from echogist import config
+
+    saved = tmp_path / "t.txt"
+    saved.write_text("[00:00:00] real speech here\n[00:01:00] more real speech", encoding="utf-8")
+    text = smoke_run.summary_input(saved, config.ChunkConfig(), emit=print)
+    assert text.startswith("[00:00:00] ")
+    assert "[00:01:00] more real speech" in text
+
+
+def test_summary_input_drops_filler_and_says_so(tmp_path: Path) -> None:
+    # CLAUDE.md: never a silent skip. The menu reports TD-26 drops; the smoke run must too.
+    from echogist import config
+
+    saved = tmp_path / "t.txt"
+    # >= min_block_words, or Rule B drops it as the loop's shoulder and nothing is left.
+    real = "real lecture speech about one topic and then another distinct topic here " * 2
+    loop = "Субтитры сделал Автор " * 10
+    saved.write_text(f"[00:00:00] {real}\n[00:01:00] {loop}", encoding="utf-8")
+    said: list[str] = []
+    text = smoke_run.summary_input(saved, config.ChunkConfig(), emit=said.append)
+    assert "Субтитры" not in text
+    assert any("1 repetitive block" in line for line in said)

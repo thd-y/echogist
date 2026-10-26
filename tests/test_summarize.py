@@ -1931,3 +1931,28 @@ def test_repair_never_cuts_a_lecture_that_merely_mentions_a_field_named_tag() ->
     ):
         phase = {"prose": prose}
         assert summarize.repair_leaked_markup(phase, _PHASE_SCHEMA) == (phase, [], [])
+
+
+def test_a_failed_partial_write_keeps_the_previous_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A plain write_text killed mid-write leaves a truncated partial; menu._load_resume
+    # then drops it as corrupt and the re-run re-pays every phase already synthesized.
+    import os
+
+    path = tmp_path / "raw" / ".resume" / "k.json"
+    first = summarize._running_summary([SynthesisSection("h", "p1")], [], [], "ru")
+    summarize.write_summary_json(first, path)
+    before = path.read_text(encoding="utf-8")
+
+    def boom(*_args: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", boom)
+    second = summarize._running_summary(
+        [SynthesisSection("h", "p1"), SynthesisSection("h2", "p2")], [], [], "ru"
+    )
+    with pytest.raises(OSError):
+        summarize.write_summary_json(second, path)
+    assert path.read_text(encoding="utf-8") == before
+    assert list(path.parent.glob("*.part")) == []

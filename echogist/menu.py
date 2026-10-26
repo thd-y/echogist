@@ -219,7 +219,9 @@ _RESUME_KEY_DIGEST_SIZE = 8
 _RESUME_KEY_RE = re.compile(rf"[0-9a-f]{{{_RESUME_KEY_DIGEST_SIZE * 2}}}")
 
 
-def _resume_key(source_path: Path, *, language: str = "", tier: str = "") -> str:
+def _resume_key(
+    source_path: Path, *, fingerprint: str | None = None, language: str = "", tier: str = ""
+) -> str:
     """Identity of the WORK being resumed, as the stem of its resume partial.
 
     ``language`` and ``tier`` are part of the identity, not decoration. The partial holds
@@ -230,18 +232,23 @@ def _resume_key(source_path: Path, *, language: str = "", tier: str = "") -> str
     a different model. Both re-run from scratch now, which costs a repeat of phases that
     were never usable rather than a paid document that is quietly wrong.
 
-    Keyed on the resolved PATH, not the stem. Two different recordings can share a stem
-    (``lecture.mp4`` in two folders, the same talk saved twice); under a stem key the second
-    one would load the first's partial, and ``_load_resume`` cannot tell them apart — it only
-    checks the phase count. The result is a silently wrong PAID summary carrying the other
-    recording's prose and timecodes, which the anchor validator accepts because those
-    timecodes are real, just from the wrong file.
+    Keyed on the recording's ``fingerprint`` (TD-31), never on the stem. Two different
+    recordings can share a stem (``lecture.mp4`` in two folders, the same talk saved
+    twice); under a stem key the second one would load the first's partial, and
+    ``_load_resume`` cannot tell them apart — it only checks the phase count. The result is
+    a silently wrong PAID summary carrying the other recording's prose and timecodes, which
+    the anchor validator accepts because those timecodes are real, just from the wrong file.
+    Not on the path either: one recording reaches here as the video in the single-file flow
+    and as its saved ``.txt`` in the recovery flow, so a path key made the advertised
+    "retry from the saved transcript" miss the partial and re-pay every phase.
 
-    ``casefold`` because :meth:`Path.resolve` does not reliably normalize case on Windows:
-    the same file picked twice with different casing must not produce two keys and silently
-    lose the resume.
+    The resolved PATH is the fallback only when there is no fingerprint (a transcript
+    written before TD-31 or renamed by hand). ``casefold`` because :meth:`Path.resolve`
+    does not reliably normalize case on Windows: the same file picked twice with different
+    casing must not produce two keys and silently lose the resume.
     """
-    identity = f"{str(source_path.resolve()).casefold()}\x00{language}\x00{tier}"
+    source = fingerprint or str(source_path.resolve()).casefold()
+    identity = f"{source}\x00{language}\x00{tier}"
     return hashlib.blake2s(identity.encode(), digest_size=_RESUME_KEY_DIGEST_SIZE).hexdigest()
 
 
@@ -478,10 +485,13 @@ def _run_summary(
     # within-run partial that is deleted once the durable .json exists.
     resume_dir = paths.resume(deps.base)
     _sweep_stale_resumes(resume_dir, ui)
-    resume_path = resume_dir / (
-        f"{_resume_key(source_path, language=settings.summary_language, tier=settings.model_tier)}"
-        ".json"
+    resume_key = _resume_key(
+        source_path,
+        fingerprint=fingerprint,
+        language=settings.summary_language,
+        tier=settings.model_tier,
     )
+    resume_path = resume_dir / f"{resume_key}.json"
     resume_from = _load_resume(resume_path, k, ui)
 
     def _persist(partial: summarize.Summary) -> None:
@@ -1336,6 +1346,16 @@ def _flow_run(deps: Deps, root: Path | None = None, *, summarize_after: bool = T
     )
     if plan.summarized:
         ui.info(f"Skipping {len(plan.summarized)} file(s) already summarized (not re-paid for).")
+    if plan.duplicates:
+        rel = {f.path: f.rel for f in result.files}
+        ui.warn(
+            f"Skipping {len(plan.duplicates)} file(s) that are copies of another file in this "
+            "folder (same recording, not re-paid for)."
+        )
+        ui.table(
+            "Copies skipped",
+            [(str(rel[copy]), f"same as {rel[original]}") for copy, original in plan.duplicates],
+        )
     pending = len(plan.ready) + len(plan.to_transcribe)
     if not pending:
         ui.success("Every file in this folder already has a summary. Nothing to do.")

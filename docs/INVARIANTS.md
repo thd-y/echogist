@@ -40,8 +40,9 @@
   forward** — a re-encode (1b) carries its parent's value or it re-buys the summary. Never put
   metadata IN the .txt: `chunk._blocks` anchors it at `[00:00:00]`, citable past validation.
 - **Ctrl-C stops the run, not the app** — `folder.Cancelled` carries the partial report, the WHOLE
-  loop iteration is guarded (BaseException), and a resume partial is keyed by path + language +
-  tier, so a tier switch re-runs and never mixes.
+  loop iteration is guarded (BaseException), and a resume partial is keyed by the recording's
+  fingerprint (path when none) + language + tier, so the video and its saved transcript
+  resume the same work, and a tier switch re-runs and never mixes.
 - **Essence block** is phase prose only; reconcile ALWAYS runs; every emitted string is
   anchor-validated. **Two different answers to a short reply, on purpose:** an empty PHASE is a
   paid call whose stretch of the recording would go missing, so it FAILS the file loud (TD-34,
