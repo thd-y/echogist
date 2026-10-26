@@ -91,6 +91,12 @@ Read on demand, not up front: `docs/INVARIANTS.md` for product invariants,
 
 ## Workflow (superpowers)
 
+Default flow: `brainstorming` → `writing-plans` → execute **Native** (`executing-plans`: implement
+every task in this session) with a fresh reviewer (`requesting-code-review`) at each seam between
+program layers — not per task, roughly every 2–5 tasks, wherever one layer's work is done and the
+next builds on it → full gate → commit on the operator's OK. Subagent-driven only when the operator asks. Specs and
+plans live in `docs/superpowers/` (gitignored, local-only).
+
 Apply superpowers skills at these gates:
 - `brainstorming` — before any ambiguous or new-scope task
 - `writing-plans` — before any multi-step implementation

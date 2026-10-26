@@ -84,3 +84,6 @@ _commit_msg.txt
 .context/
 ~/.gstack/
 .gstack-worktrees/
+
+# superpowers — local-only specs/plans written by the skills
+docs/superpowers/
