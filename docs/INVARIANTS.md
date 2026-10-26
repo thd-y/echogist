@@ -51,7 +51,9 @@
   cycle** — at the failure an 18h run would sit on a y/N for hours. Scoped by TYPE
   (`EmptyPhaseError`, a `SummarizeError` subclass so `_RECOVERABLE` is unchanged), never by
   message text; **default YES**, alone among the paid gates; asked once, retries only the lost
-  files, and its report prices the retry, not the run.
+  files, and its report prices the retry, not the run. With `auto_accept_any_cost` on (no cost
+  gate at all) ONE automatic retry pass precedes the question, which then covers only files
+  still empty after it.
 - **Cost model** projects output as `ratio x that call's input`. The input leg is near-exact over
   a whole folder (0.9987x) but runs ~1.10x on ONE file, so the output ratio carries most, not all,
   of the bias. **Re-seed a tier from its own "Actual cost" line: output/input, +~5%.** economy's and

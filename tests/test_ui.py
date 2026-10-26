@@ -152,6 +152,21 @@ def test_select_single_choice_keeps_bare_hint(monkeypatch: pytest.MonkeyPatch) -
     assert _captured_instruction(monkeypatch, [("only", "Only")]) == "(Use arrow keys)"
 
 
+def test_select_greys_out_disabled_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A disabled row is shown with its reason and cannot be picked (questionary's own
+    # ``disabled``); every other row is untouched.
+    captured: dict[str, Any] = {}
+
+    def fake_select(prompt: str, *, choices: Any, **kw: Any) -> Any:
+        captured["choices"] = choices
+        return _FakeQuestion(choices[0].value)
+
+    monkeypatch.setattr(questionary, "select", fake_select)
+    _tty_ui().select("pick", [("a", "A"), ("b", "B")], disabled={"b": "not now"})
+    by_value = {c.value: c.disabled for c in captured["choices"]}
+    assert by_value == {"a": None, "b": "not now"}
+
+
 @pytest.fixture
 def no_console() -> Iterator[None]:
     """questionary builds a prompt_toolkit Application on construction, and on Windows that
@@ -193,11 +208,35 @@ def test_bind_number_keys_caps_at_nine() -> None:
     assert digits == {"1", "2", "3", "4", "5", "6", "7", "8", "9"}
 
 
+@pytest.mark.usefixtures("no_console")
+def test_bind_number_keys_skips_disabled_rows() -> None:
+    # Digits stay positional (row 3 is still "3"), but a disabled row gets no digit: the
+    # number key must not pick what the arrow keys cannot reach.
+    choices = [
+        questionary.Choice(title="A", value="a"),
+        questionary.Choice(title="B", value="b", disabled="not now"),
+        questionary.Choice(title="C", value="c"),
+    ]
+    q = questionary.select("pick", choices=choices)
+    RichQuestionaryUI._bind_number_keys(q, choices)
+    kb = q.application.key_bindings
+    assert isinstance(kb, KeyBindings)
+    digits = {str(b.keys[0]) for b in kb.bindings if len(b.keys) == 1 and str(b.keys[0]).isdigit()}
+    assert digits == {"1", "3"}
+
+
 # --------------------------------------------------------------------------- #
 # StubUI — the offline double
 # --------------------------------------------------------------------------- #
 def test_stub_is_a_ui() -> None:
     assert isinstance(StubUI(), UI)
+
+
+def test_stub_refuses_a_disabled_answer() -> None:
+    # The real prompt cannot return a disabled row, so a test that queues one is wrong.
+    ui = StubUI(answers=["b"])
+    with pytest.raises(AssertionError, match="disabled"):
+        ui.select("pick", [("a", "A"), ("b", "B")], disabled={"b": "not now"})
 
 
 def test_stub_pops_answers_in_order() -> None:

@@ -312,6 +312,10 @@ class Settings:
     # regardless of this flag. Has a default so an older settings.json (written before the
     # field existed) still loads, and direct ``Settings(...)`` callers stay valid.
     auto_accept_under_threshold: bool = True
+    # When True, every summary (single file and folder) runs with no cost prompt at all, at any
+    # estimate — for unattended overnight folder runs. Overrides the threshold and the flag
+    # above; the estimate still prints. Defaulted for the same older-settings.json reason.
+    auto_accept_any_cost: bool = False
     # How many files the batch MP3 flow converts at once. 1 = a genuinely sequential run.
     # Same story as the field above: defaulted so an older settings.json still loads. The
     # factory (not a flat literal) keeps the core-count cap true on EVERY path — a direct
@@ -344,6 +348,7 @@ def default_settings() -> Settings:
         model_tier="economy",
         confirm_threshold_usd=0.50,
         auto_accept_under_threshold=True,
+        auto_accept_any_cost=False,
         batch_workers=default_batch_workers(),
     )
 
@@ -682,6 +687,11 @@ def _validate_settings(data: dict[str, Any], source: str) -> Settings:
     if not isinstance(auto_accept, bool):
         raise ConfigError(f"{source}: auto_accept_under_threshold must be true or false.")
 
+    # Optional, same backfill story: absent → False, so the cost gates stay in force.
+    any_cost = data.get("auto_accept_any_cost", False)
+    if not isinstance(any_cost, bool):
+        raise ConfigError(f"{source}: auto_accept_any_cost must be true or false.")
+
     # Optional, same backfill story. A bool is rejected explicitly because ``True`` is an
     # int in Python and would otherwise sail through as "1 worker".
     workers = data.get("batch_workers", default_batch_workers())
@@ -696,6 +706,7 @@ def _validate_settings(data: dict[str, Any], source: str) -> Settings:
         model_tier=model_tier,
         confirm_threshold_usd=float(threshold),
         auto_accept_under_threshold=auto_accept,
+        auto_accept_any_cost=any_cost,
         batch_workers=workers,
     )
 

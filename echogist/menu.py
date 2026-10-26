@@ -434,21 +434,29 @@ def _run_summary(
     # above uses those carried-over prices, so it may under-state the bill. One-time,
     # non-blocking (fires once per run) — it does NOT move the gate or the threshold.
     if gate and tier.prices_unverified:
+        # No gate to clear when the operator auto-accepts any cost; say only what is true.
+        gate_clause = (
+            ""
+            if settings.auto_accept_any_cost
+            else f" and clear the ${settings.confirm_threshold_usd:g} gate when it should not"
+        )
         ui.warn(
             f"Model generation changed for the '{tier.name}' tier — prices unconfirmed, so "
-            f"the estimate above may under-state the real bill and clear the "
-            f"${settings.confirm_threshold_usd:g} gate when it should not. "
+            f"the estimate above may under-state the real bill{gate_clause}. "
             "Verify the pricing page and clear prices_unverified in config/models.toml."
         )
 
     # Threshold friction (plan §3): above the operator's threshold, an explicit y/N gate
-    # (default No) must clear before spending — always, regardless of the flag below. At/below
+    # (default No) must clear before spending — always, unless settings.auto_accept_any_cost
+    # (operator opted out of every cost prompt) is on; regardless of the flag below. At/below
     # threshold the call always runs (a y/N there could wrongly decline a call that just
     # proceeds); TD-9 makes that path operator-controlled via settings.auto_accept_under_threshold.
     # Default (True) → proceed immediately, the shown estimate is the acknowledgment. False → a
     # non-decision "press Enter" acknowledge beat first, so the operator can Ctrl-C out.
     if not gate:
         pass  # folder run: one quote, one answer, already given for every file
+    elif settings.auto_accept_any_cost:
+        pass  # operator opted out of every cost prompt in Settings; the estimate above stands
     elif cost.requires_explicit_confirmation(estimate, settings.confirm_threshold_usd):
 
         def _confirm(prompt: str, default: bool) -> bool:  # adapt ui.confirm's kw-only default
@@ -616,6 +624,12 @@ def _run_summary_with_retry(
         )
 
     attempt(stopped.append)
+    if stopped and settings.auto_accept_any_cost:
+        # Unattended: the first retry is automatic; still empty after it, the question below
+        # waits for the operator as usual.
+        ui.info("Retrying the empty phase automatically (auto-accept any cost is on).")
+        stopped.clear()
+        attempt(stopped.append)
     if stopped and _confirm_retry(ui, len(stopped)):
         attempt(None)
 
@@ -1395,7 +1409,11 @@ def _flow_run(deps: Deps, root: Path | None = None, *, summarize_after: bool = T
             f"Model generation changed for the '{tier.name}' tier — prices unconfirmed, so "
             "the estimate above may under-state the real bill."
         )
-    if not ui.confirm(f"Summarize {len(ordered)} file(s)?", default=False):
+    # Auto-accept any cost: no question, so an unattended (overnight) run does not stall
+    # here after the long transcription; the quote above still prints for the morning.
+    if not settings.auto_accept_any_cost and not ui.confirm(
+        f"Summarize {len(ordered)} file(s)?", default=False
+    ):
         ui.info("Nothing was summarized; your transcripts are saved.")
         return
 
@@ -1471,14 +1489,18 @@ def _flow_run(deps: Deps, root: Path | None = None, *, summarize_after: bool = T
         elapsed=monotonic() - started,
     )
     done = summarized.done
+
     # The empty-phase question, once, with the whole run's outcome already on screen.
     # Asking at the failure would be the per-file babysitting this flow exists to remove —
     # an 18-hour run would sit on a y/N for hours. The retry is a second pass over just the
     # files that were lost: it re-enters ``_run_summary``, which reloads each one's saved
-    # partial and re-pays only the phase that came back empty. One pass, no loop.
-    if stopped_empty and _confirm_retry(ui, len(stopped_empty)):
+    # partial and re-pays only the phase that came back empty. One asked pass, no loop (plus
+    # one automatic pass first when auto-accept any cost is on).
+    def _retry_pass() -> bool:
+        """One retry pass over the files in ``stopped_empty``; False if it was cancelled."""
+        nonlocal done
         retry_sources = tuple(stopped_empty)
-        stopped_empty.clear()  # a second empty phase is not re-asked; go read the transcript
+        stopped_empty.clear()  # refilled by this pass with whatever stops on an empty phase again
         retry_started = monotonic()
         # The retry reports its OWN prices, not the run's running total: its table lists one
         # or two files, and a whole-run "Actually spent" under them reads as what the retry
@@ -1499,7 +1521,7 @@ def _flow_run(deps: Deps, root: Path | None = None, *, summarize_after: bool = T
                 spent={src: spent[src] for src in retry_sources if src in spent},
                 elapsed=monotonic() - retry_started,
             )
-            return
+            return False
         _report_run(
             ui,
             retried,
@@ -1509,6 +1531,16 @@ def _flow_run(deps: Deps, root: Path | None = None, *, summarize_after: bool = T
             elapsed=monotonic() - retry_started,
         )
         done += retried.done
+        return True
+
+    # Auto-accept any cost: the first retry pass is automatic, so an overnight run finishes
+    # what it can unattended; what is still empty after it gets the usual question.
+    if stopped_empty and settings.auto_accept_any_cost:
+        ui.info("Retrying empty phases automatically (auto-accept any cost is on).")
+        if not _retry_pass():
+            return
+    if stopped_empty and _confirm_retry(ui, len(stopped_empty)) and not _retry_pass():
+        return
     if done:
         ui.reveal_dir(summaries_dir, priority=REVEAL_SUMMARY)
 
@@ -1598,6 +1630,7 @@ _SETTINGS_FIELDS: tuple[Choice, ...] = (
     ("4", "Cost confirm threshold"),
     ("5", "Auto-accept at or below threshold"),
     ("6", "Batch MP3 workers"),
+    ("7", "Auto-accept any cost (no confirmation)"),
     ("__back__", "← Back"),
 )
 
@@ -1718,7 +1751,12 @@ def _flow_settings(deps: Deps) -> None:
             ("Output format", settings.output_format),
             ("Model tier", settings.model_tier),
             ("Confirm threshold", f"${settings.confirm_threshold_usd:,.2f}"),
-            ("Auto-accept ≤ threshold", "on" if settings.auto_accept_under_threshold else "off"),
+            (
+                "Auto-accept ≤ threshold",
+                ("on" if settings.auto_accept_under_threshold else "off")
+                + (" (overridden)" if settings.auto_accept_any_cost else ""),
+            ),
+            ("Auto-accept any cost", "on" if settings.auto_accept_any_cost else "off"),
             (
                 "Batch MP3 workers",
                 f"{settings.batch_workers}"
@@ -1727,7 +1765,14 @@ def _flow_settings(deps: Deps) -> None:
         ],
     )
 
-    field_choice = ui.select("Change a setting", _SETTINGS_FIELDS)
+    # Any-cost overrides item 5, so it is greyed out; its stored value waits for any-cost off.
+    field_choice = ui.select(
+        "Change a setting",
+        _SETTINGS_FIELDS,
+        disabled={"5": "overridden by Auto-accept any cost"}
+        if settings.auto_accept_any_cost
+        else None,
+    )
     if field_choice == "__back__":
         return
 
@@ -1772,6 +1817,11 @@ def _flow_settings(deps: Deps) -> None:
             ui.warn(f"Enter a number from 1 to {config.MAX_BATCH_WORKERS}; unchanged.")
             return
         settings.batch_workers = workers
+    elif field_choice == "7":
+        settings.auto_accept_any_cost = ui.confirm(
+            "Summarize without asking, whatever the estimated cost?",
+            default=settings.auto_accept_any_cost,
+        )
 
     config.save_settings(settings, deps.settings_path)
     ui.success("Saved.")

@@ -435,6 +435,30 @@ def test_auto_accept_non_bool_errors(tmp_path: Path) -> None:
         load_settings(tmp_path / "settings.json")
 
 
+def test_auto_accept_any_cost_defaults_false() -> None:
+    # Off by default: the threshold gate and the folder confirm stay in force.
+    assert default_settings().auto_accept_any_cost is False
+
+
+def test_auto_accept_any_cost_absent_in_old_file_defaults_false(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "settings.json",
+        '{"summary_language":"ru","output_format":"pdf",'
+        '"model_tier":"balanced","confirm_threshold_usd":0.5}',
+    )
+    assert load_settings(tmp_path / "settings.json").auto_accept_any_cost is False
+
+
+def test_auto_accept_any_cost_non_bool_errors(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "settings.json",
+        '{"summary_language":"ru","output_format":"pdf","model_tier":"balanced",'
+        '"confirm_threshold_usd":0.5,"auto_accept_any_cost":"yes"}',
+    )
+    with pytest.raises(ConfigError, match="auto_accept_any_cost"):
+        load_settings(tmp_path / "settings.json")
+
+
 def test_batch_workers_defaults_to_at_most_four(tmp_path: Path) -> None:
     # Seeded from the core count so a 2-core box does not thrash, capped at 4 because a
     # batch waits on the disk past that. Also the backfill for a file written before the

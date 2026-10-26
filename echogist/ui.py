@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, suppress
 from datetime import datetime
 from pathlib import Path
@@ -136,7 +136,9 @@ class UI(Protocol):
     def banner(self, title: str, subtitle: str = "") -> None: ...
     def clear(self) -> None: ...
     def drain_input(self) -> None: ...
-    def select(self, prompt: str, choices: Sequence[Choice]) -> str: ...
+    def select(
+        self, prompt: str, choices: Sequence[Choice], *, disabled: Mapping[str, str] | None = None
+    ) -> str: ...
     def text(self, prompt: str, *, default: str = "") -> str: ...
     def confirm(self, prompt: str, *, default: bool = False) -> bool: ...
     def pick_file(
@@ -312,7 +314,11 @@ class RichQuestionaryUI:
 
             termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
 
-    def select(self, prompt: str, choices: Sequence[Choice]) -> str:
+    def select(
+        self, prompt: str, choices: Sequence[Choice], *, disabled: Mapping[str, str] | None = None
+    ) -> str:
+        # ``disabled`` maps a row's value to the reason it is greyed out (questionary shows the
+        # reason and the arrow keys skip the row).
         # A dunder-wrapped value (``__back__`` / ``__cancel__``) is a navigation control,
         # not a content option: render its label with the muted ``control`` style so it
         # reads as subtle chrome. questionary takes a formatted-text title verbatim, so
@@ -321,6 +327,7 @@ class RichQuestionaryUI:
             questionary.Choice(
                 title=[("class:control", label)] if _is_control_value(value) else label,
                 value=value,
+                disabled=(disabled or {}).get(value),
             )
             for value, label in choices
         ]
@@ -367,6 +374,8 @@ class RichQuestionaryUI:
             return _handler
 
         for index, choice in enumerate(options[:9]):
+            if choice.disabled:  # positional digits stay put; a greyed-out row gets none
+                continue
             bindings.add(str(index + 1), eager=True)(_make(choice.value))
 
     def text(self, prompt: str, *, default: str = "") -> str:
@@ -847,9 +856,17 @@ class StubUI:
     def drain_input(self) -> None:
         self.messages.append(("drain", ""))
 
-    def select(self, prompt: str, choices: Sequence[Choice]) -> str:
+    def select(
+        self, prompt: str, choices: Sequence[Choice], *, disabled: Mapping[str, str] | None = None
+    ) -> str:
         self.messages.append(("select", prompt))
-        return str(self._pop())
+        for value in disabled or {}:
+            self.messages.append(("select-disabled", value))
+        answer = str(self._pop())
+        # The real prompt cannot return a greyed-out row; a test that queues one is wrong.
+        if answer in (disabled or {}):
+            raise AssertionError(f"queued answer {answer!r} is a disabled row")
+        return answer
 
     def text(self, prompt: str, *, default: str = "") -> str:
         self.messages.append(("text", prompt))

@@ -39,6 +39,14 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   line (output/input, +~5%); if economy's input leg is visibly low, add a per-tier token factor.
   A max_tokens failure on flagship means raise the cap or lower its effort.
 
+- **TD-41 — a phase that comes back empty is paid for and reported nowhere** · LOW · created
+  2026-10-26. `on_cost` fires only when a file lands, so the call whose phase came back empty
+  (TD-34) is missing from "Actual cost" and from the folder's "Actually spent", and the bill runs
+  above the report by that call. Pre-existing; `auto_accept_any_cost` adds up to one more such
+  call per file (its automatic retry), so an unattended run can under-report by up to two phase
+  calls per affected file. **Trigger: a folder total that visibly disagrees with the Anthropic
+  console, or the next change to `on_cost` / `_report_run`.**
+
 The registry was fully closed on 2026-08-03 (TD-9 and TD-17 implemented, TD-7 and TD-20 WONTFIX,
 branch `chore/close-tech-debt`); TD-22 through TD-28 are the entries since, and all of them are now
 closed: TD-22, TD-25 and TD-26 on 2026-09-04, TD-23/TD-24 the day after the first full folder
@@ -56,7 +64,7 @@ TD-27's artifact-format breaks, which is what it exists for, and none of the thr
 against v2.3.0: TD-35 was a stale constant that predates it, and TD-34 and TD-36 are pre-existing
 gaps that this run's own new `notice` lines are what made visible. All three were answered the next
 day, 2026-09-06 (`601c270`), before the next paid run: TD-34 and TD-35 closed, TD-36's first half
-with them. **Open now: TD-37, TD-38 and TD-40 (LOW)** — TD-36 and TD-39 closed 2026-10-10; TD-30 and TD-29b
+with them. **Open now: TD-37, TD-38, TD-40 and TD-41 (LOW)** — TD-36 and TD-39 closed 2026-10-10; TD-30 and TD-29b
 closed 2026-09-06, the registry's two LOW entries answered the same day as its two HIGH ones;
 TD-29c closed 2026-09-24 and CI opened TD-37 and TD-38 the same day.
 

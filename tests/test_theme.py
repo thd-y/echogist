@@ -102,3 +102,10 @@ def test_the_rule_title_keeps_the_line_colour_and_adds_weight() -> None:
     assert str(styles["rule.title"].color) == str(styles["rule"].color)
     assert styles["rule.title"].bold
     assert not styles["rule"].bold
+
+
+def test_questionary_style_greys_out_disabled_rows() -> None:
+    # questionary draws a disabled row with ``class:disabled``; neither it nor prompt_toolkit
+    # styles that class, so without this rule a disabled row looks like any other.
+    rules = dict(theme.QUESTIONARY_STYLE.style_rules)
+    assert rules.get("disabled") == "fg:#6c6c6c"

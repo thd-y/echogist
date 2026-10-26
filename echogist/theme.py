@@ -69,6 +69,9 @@ QUESTIONARY_STYLE = questionary.Style(
         # subtle chrome, distinct from the functional choices — the style is applied to
         # the row's text verbatim, so Back stays grey even when the arrow rests on it.
         ("control", "fg:#6c6c6c italic"),
+        # A disabled (unselectable) row — questionary's own class, unstyled by default. Same
+        # grey as the controls but upright, so it does not read as a navigation row.
+        ("disabled", "fg:#6c6c6c"),
     ]
 )
 

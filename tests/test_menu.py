@@ -1220,6 +1220,41 @@ def test_above_threshold_confirms_even_with_auto_accept_on(tmp_path: Path) -> No
     assert not [m for m in stub.messages if m[0] == "text" and "Press Enter" in m[1]]  # no beat
 
 
+def test_any_cost_single_file_over_threshold_skips_confirm(tmp_path: Path) -> None:
+    # Auto-accept any cost: no y/N even above the threshold. No bool is queued for a
+    # confirm, so a gate that still asked would mis-pop the answers.
+    _write_settings(tmp_path, confirm_threshold_usd=0.0, auto_accept_any_cost=True)
+    _seed_transcript(tmp_path)
+    deps, stub, calls = _make_deps(tmp_path, ["single", "transcript", "0", "exit"])
+    assert menu.run_menu(deps) == 0
+    assert calls["summarize"] == 1
+    assert not any(m[0] == "confirm" for m in stub.messages)
+    assert "Estimated cost" in stub.log_text
+
+
+def test_any_cost_wins_over_the_press_enter_beat(tmp_path: Path) -> None:
+    _write_settings(
+        tmp_path,
+        confirm_threshold_usd=100.0,
+        auto_accept_under_threshold=False,
+        auto_accept_any_cost=True,
+    )
+    _seed_transcript(tmp_path)
+    deps, stub, calls = _make_deps(tmp_path, ["single", "transcript", "0", "exit"])
+    assert menu.run_menu(deps) == 0
+    assert calls["summarize"] == 1
+    assert not [m for m in stub.messages if m[0] == "text" and "Press Enter" in m[1]]
+
+
+def test_any_cost_still_needs_an_api_key(tmp_path: Path) -> None:
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _seed_transcript(tmp_path)
+    deps, stub, calls = _make_deps(tmp_path, ["single", "transcript", "0", "exit"], api_key=None)
+    assert menu.run_menu(deps) == 0
+    assert calls["summarize"] == 0
+    assert "No Anthropic API key found" in stub.log_text
+
+
 def test_unverified_prices_warns_but_does_not_block(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1243,6 +1278,30 @@ def test_unverified_prices_warns_but_does_not_block(
     assert calls["summarize"] == 1  # not blocked
     notices = [m for m in stub.messages if m[0] == "warn" and "prices unconfirmed" in m[1]]
     assert len(notices) == 1
+
+
+def test_any_cost_unverified_notice_does_not_mention_a_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # With auto-accept any cost on there is no gate, so "clear the $X gate" would be false.
+    from dataclasses import replace
+
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _seed_transcript(tmp_path)
+    real = config.load_model_config
+
+    def patched(*a: Any, **k: Any) -> config.ModelConfig:
+        cfg = real(*a, **k)
+        flagged = replace(cfg.tiers["economy"], prices_unverified=True)
+        return replace(cfg, tiers={**cfg.tiers, "economy": flagged})
+
+    monkeypatch.setattr(config, "load_model_config", patched)
+    deps, stub, calls = _make_deps(tmp_path, ["single", "transcript", "0", "exit"])
+    assert menu.run_menu(deps) == 0
+    assert calls["summarize"] == 1
+    notices = [m[1] for m in stub.messages if m[0] == "warn" and "prices unconfirmed" in m[1]]
+    assert len(notices) == 1
+    assert "gate" not in notices[0]
 
 
 def test_no_unverified_notice_when_prices_confirmed(tmp_path: Path) -> None:
@@ -1503,6 +1562,31 @@ def test_settings_toggle_auto_accept_persists(tmp_path: Path) -> None:
     assert menu.run_menu(deps) == 0
     assert "Saved." in stub.log_text
     assert config.load_settings(tmp_path / "settings.json").auto_accept_under_threshold is False
+
+
+def test_settings_toggle_auto_accept_any_cost_persists(tmp_path: Path) -> None:
+    # menu -> settings -> field "7" (auto-accept any cost) -> confirm True. Default is False.
+    deps, stub, _ = _make_deps(tmp_path, ["settings", "7", True, "exit"])
+    assert menu.run_menu(deps) == 0
+    assert "Saved." in stub.log_text
+    assert config.load_settings(tmp_path / "settings.json").auto_accept_any_cost is True
+
+
+def test_settings_threshold_auto_accept_is_inactive_while_any_cost_is_on(tmp_path: Path) -> None:
+    # Any-cost overrides item 5, so item 5 is greyed out and its table row says so; the
+    # stored value is kept for when any-cost is turned off again.
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    deps, stub, _ = _make_deps(tmp_path, ["settings", "__back__", "exit"])
+    assert menu.run_menu(deps) == 0
+    assert ("select-disabled", "5") in stub.messages
+    assert ("table-row", "Auto-accept ≤ threshold: on (overridden)") in stub.messages
+
+
+def test_settings_threshold_auto_accept_is_active_while_any_cost_is_off(tmp_path: Path) -> None:
+    deps, stub, _ = _make_deps(tmp_path, ["settings", "__back__", "exit"])
+    assert menu.run_menu(deps) == 0
+    assert not any(m[0] == "select-disabled" for m in stub.messages)
+    assert ("table-row", "Auto-accept ≤ threshold: on") in stub.messages
 
 
 def test_settings_batch_workers_persists(tmp_path: Path) -> None:
@@ -2034,6 +2118,52 @@ def test_bulk_flow_declined_gate_spends_nothing_but_keeps_the_transcripts(
     assert "your transcripts are saved" in stub.log_text
 
 
+def test_any_cost_folder_run_skips_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The overnight run: after transcription the paid half starts on its own. Only the
+    keep-MP3 answer is queued, so a gate that still asked would mis-pop the answers."""
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _offline_scan(monkeypatch)
+    library = tmp_path / "library"
+    for name in ("one.mp4", "two.mp4"):
+        _lecture(library, name)
+    deps, stub, calls = _make_deps(tmp_path, ["folder", str(library), "summary", False, "exit"])
+
+    assert menu.run_menu(deps) == 0
+
+    assert calls["summarize"] == 2
+    assert not any(m[0] == "confirm" and "Summarize 2 file(s)" in m[1] for m in stub.messages)
+    assert "Estimated cost" in stub.log_text
+    assert "Actually spent" in stub.log_text
+
+
+def test_any_cost_folder_run_still_warns_on_unverified_prices(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _offline_scan(monkeypatch)
+    real = config.load_model_config
+
+    def patched(*a: Any, **k: Any) -> config.ModelConfig:
+        cfg = real(*a, **k)
+        flagged = replace(cfg.tiers["economy"], prices_unverified=True)
+        return replace(cfg, tiers={**cfg.tiers, "economy": flagged})
+
+    monkeypatch.setattr(config, "load_model_config", patched)
+    library = tmp_path / "library"
+    _lecture(library, "one.mp4")
+    deps, stub, calls = _make_deps(tmp_path, ["folder", str(library), "summary", False, "exit"])
+
+    assert menu.run_menu(deps) == 0
+
+    assert calls["summarize"] == 1
+    assert not any(m[0] == "confirm" and "Summarize 1 file(s)" in m[1] for m in stub.messages)
+    assert any(m[0] == "warn" and "prices unconfirmed" in m[1] for m in stub.messages)
+
+
 def test_bulk_flow_skips_a_file_that_already_has_a_summary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2439,6 +2569,37 @@ def test_a_second_empty_phase_is_not_offered_again(tmp_path: Path) -> None:
     assert calls["summarize"] == 2
 
 
+def test_any_cost_retries_an_empty_phase_once_without_asking(tmp_path: Path) -> None:
+    """Unattended run: the one retry is automatic. No bool is queued for the question."""
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _seed_transcript(tmp_path)
+    deps, stub, calls = _make_deps(
+        tmp_path, ["single", "transcript", "0", "exit"], empty_phase_calls=1
+    )
+
+    assert menu.run_menu(deps) == 0
+
+    assert _retry_prompts(stub) == []
+    assert calls["summarize"] == 2
+    assert "Done — summary written to" in stub.log_text
+
+
+def test_any_cost_asks_when_the_automatic_retry_is_empty_too(tmp_path: Path) -> None:
+    """Twice empty: the automatic retry is spent, so the usual question waits for the
+    operator, and a yes buys exactly one more attempt."""
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _seed_transcript(tmp_path)
+    deps, stub, calls = _make_deps(
+        tmp_path, ["single", "transcript", "0", True, "exit"], empty_phase_calls=2
+    )
+
+    assert menu.run_menu(deps) == 0
+
+    assert len(_retry_prompts(stub)) == 1
+    assert calls["summarize"] == 3
+    assert "Done — summary written to" in stub.log_text
+
+
 def test_an_ordinary_summarize_failure_is_never_offered_a_retry(tmp_path: Path) -> None:
     """A missing key or a blown output cap needs the operator to change something first;
     re-running it unchanged would just buy the same failure again."""
@@ -2466,16 +2627,7 @@ def test_the_folder_run_asks_once_after_its_report_and_retries_only_what_it_lost
     deps, stub, calls = _make_deps(
         tmp_path, ["folder", str(library), "summary", False, True, True, "exit"]
     )
-    real = deps.summarize
-    burned: set[str] = set()
-
-    def flaky(text: str, tier: Any, cfg: Any, *, source_stem: str, **kw: Any) -> SummarizeResult:
-        if source_stem == "b" and source_stem not in burned:
-            burned.add(source_stem)
-            raise EmptyPhaseError("Phase 2/2 (00:30:00-01:00:00) came back empty")
-        return real(text, tier, cfg, source_stem=source_stem, **kw)
-
-    deps = replace(deps, summarize=flaky)
+    deps = _flaky_b(deps, empty_times=1)
 
     assert menu.run_menu(deps) == 0
 
@@ -2491,6 +2643,96 @@ def test_the_folder_run_asks_once_after_its_report_and_retries_only_what_it_lost
     retry_table = stub.log_text[stub.log_text.index("Retried — result") :]
     assert "a.mp4" not in retry_table, "the file that landed the first time is not re-listed"
     assert "b.mp4" in retry_table
+
+
+def _flaky_b(deps: menu.Deps, empty_times: int) -> menu.Deps:
+    """``b`` comes back with an empty phase ``empty_times`` times, then lands."""
+    real = deps.summarize
+    burned: list[str] = []
+
+    def flaky(text: str, tier: Any, cfg: Any, *, source_stem: str, **kw: Any) -> SummarizeResult:
+        if source_stem == "b" and len(burned) < empty_times:
+            burned.append(source_stem)
+            raise EmptyPhaseError("Phase 2/2 (00:30:00-01:00:00) came back empty")
+        return real(text, tier, cfg, source_stem=source_stem, **kw)
+
+    return replace(deps, summarize=flaky)
+
+
+def test_any_cost_folder_run_retries_once_without_asking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _offline_scan(monkeypatch)
+    library = tmp_path / "library"
+    for name in ("a.mp4", "b.mp4"):
+        _lecture(library, name)
+    deps, stub, calls = _make_deps(tmp_path, ["folder", str(library), "summary", False, "exit"])
+    deps = _flaky_b(deps, empty_times=1)
+
+    assert menu.run_menu(deps) == 0
+
+    assert _retry_prompts(stub) == []
+    assert calls["summarize"] == 2, "a landed, b landed on the automatic retry"
+    assert "Retried — result" in stub.log_text
+
+
+def test_any_cost_folder_run_asks_when_the_automatic_retry_is_empty_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _offline_scan(monkeypatch)
+    library = tmp_path / "library"
+    for name in ("a.mp4", "b.mp4"):
+        _lecture(library, name)
+    deps, stub, calls = _make_deps(
+        tmp_path, ["folder", str(library), "summary", False, True, "exit"]
+    )
+    deps = _flaky_b(deps, empty_times=2)
+
+    assert menu.run_menu(deps) == 0
+
+    assert len(_retry_prompts(stub)) == 1
+    assert calls["summarize"] == 2, "b landed on the operator's retry"
+    automatic = stub.log_text.index("Retried — result")
+    question = stub.log_text.index("stopped on an empty phase")
+    assert automatic < question, "the automatic retry runs and reports before the question"
+
+
+def test_any_cost_ctrl_c_during_the_automatic_retry_asks_nothing_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ctrl-C in the automatic pass ends the run there: the operator is at the keyboard and
+    just said stop, so the retry question must not follow — even for a file that came back
+    empty again earlier in that same pass."""
+    _write_settings(tmp_path, auto_accept_any_cost=True)
+    _offline_scan(monkeypatch)
+    library = tmp_path / "library"
+    for name in ("a.mp4", "b.mp4", "c.mp4"):
+        _lecture(library, name)
+    deps, stub, _ = _make_deps(tmp_path, ["folder", str(library), "summary", False, "exit"])
+    real = deps.summarize
+    seen: list[str] = []
+
+    def stub_summarize(
+        text: str, tier: Any, cfg: Any, *, source_stem: str, **kw: Any
+    ) -> SummarizeResult:
+        seen.append(source_stem)
+        if source_stem == "b":  # empty in the run AND in the automatic retry
+            raise EmptyPhaseError("Phase 2/2 (00:30:00-01:00:00) came back empty")
+        if source_stem == "c":  # empty in the run, interrupted in the automatic retry
+            if seen.count("c") == 1:
+                raise EmptyPhaseError("Phase 2/2 (00:30:00-01:00:00) came back empty")
+            raise KeyboardInterrupt
+        return real(text, tier, cfg, source_stem=source_stem, **kw)
+
+    deps = replace(deps, summarize=stub_summarize)
+
+    assert menu.run_menu(deps) == 0
+
+    assert seen == ["a", "b", "c", "b", "c"], "run, then the automatic pass up to Ctrl-C"
+    assert _retry_prompts(stub) == []
+    assert "Retried" in stub.log_text
 
 
 def test_the_folder_run_says_nothing_when_no_file_stopped_on_an_empty_phase(
