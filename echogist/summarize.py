@@ -1039,7 +1039,13 @@ def build_reconcile_request(
     would be a second lossy hop). The reconcile schema; sampling knobs only when set.
     """
     system = cfg.reconcile_system_prompt.replace("{language}", _language_name(language))
-    content = "\n\n".join(f"[Phase {i}] {s.heading}\n{s.prose}" for i, s in enumerate(sections, 1))
+    phases = "\n\n".join(f"[Phase {i}] {s.heading}\n{s.prose}" for i, s in enumerate(sections, 1))
+    # TD-43: left to count the phases itself, economy missed the outline on 16 of 25 K=2 files.
+    k = len(sections)
+    content = (
+        f"There are exactly {k} phases below. Return exactly {k} phase_headings, "
+        f"one per phase, in order.\n\n{phases}"
+    )
     request: dict[str, Any] = {
         "model": tier.model_id,
         "max_tokens": cfg.max_output_tokens,
@@ -1364,10 +1370,18 @@ def _apply_normalized_headings(
     returns exactly one NON-EMPTY heading per phase; any count/shape mismatch keeps the
     original headings (a wrong-length remap could mislabel a phase) and logs it.
     """
-    cleaned = tuple(str(h).strip() for h in raw_headings) if isinstance(raw_headings, list) else ()
+    if not isinstance(raw_headings, list):
+        if sections:
+            log("Reconcile returned no phase-heading list; keeping phase headings.")
+        return list(sections)
+    cleaned = tuple(str(h).strip() for h in raw_headings)
     if len(cleaned) != len(sections) or not all(cleaned):
         if sections:
-            log("Reconcile returned no usable phase-heading outline; keeping phase headings.")
+            empty = sum(1 for h in cleaned if not h)
+            log(
+                f"Reconcile returned {len(cleaned)} phase heading(s) for {len(sections)} "
+                f"phases ({empty} empty); keeping phase headings."
+            )
         return list(sections)
     return [replace(s, heading=h) for s, h in zip(sections, cleaned, strict=True)]
 

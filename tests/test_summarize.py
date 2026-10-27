@@ -704,6 +704,40 @@ def test_synthesize_applies_reconcile_normalized_phase_headings() -> None:
     ]
 
 
+@pytest.mark.parametrize("count", [1, 2])
+def test_the_reconcile_request_states_the_phase_count(count: int) -> None:
+    # TD-43: 16 of 25 two-phase files missed the outline; the prompt never said how many.
+    sections = [SynthesisSection(f"H{i}", "p", ()) for i in range(count)]
+    req = summarize.build_reconcile_request(sections, _tier(), _cfg(), language="en")
+    content = req["messages"][0]["content"]
+    assert content.startswith(
+        f"There are exactly {count} phases below. Return exactly {count} phase_headings, "
+        "one per phase, in order.\n\n[Phase 1] H0\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            ["A"],
+            "Reconcile returned 1 phase heading(s) for 2 phases (0 empty); keeping phase headings.",
+        ),
+        (
+            ["A", ""],
+            "Reconcile returned 2 phase heading(s) for 2 phases (1 empty); keeping phase headings.",
+        ),
+        (None, "Reconcile returned no phase-heading list; keeping phase headings."),
+    ],
+)
+def test_a_heading_count_mismatch_is_logged_with_what_came_back(raw: Any, expected: str) -> None:
+    sections = [SynthesisSection("Intro", "p", ()), SynthesisSection("Body", "p", ())]
+    lines: list[str] = []
+    kept = summarize._apply_normalized_headings(sections, raw, log=lines.append)
+    assert [s.heading for s in kept] == ["Intro", "Body"]
+    assert lines == [expected]
+
+
 def test_synthesize_keeps_local_headings_when_reconcile_outline_mismatches() -> None:
     # TD-18 fail-soft: a wrong-length (or absent) phase_headings list could mislabel a phase,
     # so it is ignored and the original per-phase headings are kept.
