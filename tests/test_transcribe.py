@@ -13,6 +13,7 @@ import types
 from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
+from typing import Any, ClassVar
 
 import pytest
 
@@ -281,17 +282,21 @@ class _FakeRawSegment:
 class _FakeInfo:
     language = "ru"
     duration = 12.5
+    language_probability = 0.97
 
 
 class _FakeWhisperModel:
     """Stands in for faster_whisper.WhisperModel — no GPU, no model bytes."""
 
+    last_kwargs: ClassVar[dict[str, Any]] = {}
+
     def __init__(self, model_dir: str, device: str, compute_type: str) -> None:
         self.args = (model_dir, device, compute_type)
 
     def transcribe(
-        self, audio_path: str, language: str | None = None
+        self, audio_path: str, language: str | None = None, **kwargs: Any
     ) -> tuple[Iterator[_FakeRawSegment], _FakeInfo]:
+        type(self).last_kwargs = kwargs
         segments = iter(
             [
                 _FakeRawSegment(0.0, 2.0, "  Привет  "),
@@ -318,6 +323,49 @@ def test_transcribe_assembles_transcript_with_fake_backend(
     assert [s.text for s in tr.segments] == ["Привет", "мир"]
     assert tr.segments[0].start == 0.0
     assert tr.segments[0].end == 2.0
+
+
+def test_transcribe_turns_on_vad(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # TD-43: without VAD the language is detected on the opening silence, which reads as en.
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"x")
+    _install_fake_whisper(monkeypatch, _FakeWhisperModel)
+    transcribe.transcribe(audio, tmp_path / "model", log=lambda _m: None)
+    assert _FakeWhisperModel.last_kwargs.get("vad_filter") is True
+
+
+def test_transcribe_reports_language_probability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"x")
+    _install_fake_whisper(monkeypatch, _FakeWhisperModel)
+    lines: list[str] = []
+    tr = transcribe.transcribe(audio, tmp_path / "model", log=lines.append)
+    assert tr.language_probability == 0.97
+    assert lines == ["Detected language: ru (p=0.97); audio 00:00:12."]
+
+
+def test_transcribe_without_probability_is_unknown_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _BareInfo:
+        language = "ru"
+        duration = 12.5
+
+    class _BareModel(_FakeWhisperModel):
+        def transcribe(  # type: ignore[override]
+            self, audio_path: str, language: str | None = None, **kwargs: Any
+        ) -> tuple[Iterator[_FakeRawSegment], _BareInfo]:
+            return iter([]), _BareInfo()
+
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"x")
+    _install_fake_whisper(monkeypatch, _BareModel)
+    lines: list[str] = []
+    tr = transcribe.transcribe(audio, tmp_path / "model", log=lines.append)
+    assert tr.language_probability == 1.0
+    assert lines == ["Detected language: ru; audio 00:00:12."]
 
 
 def test_transcribe_missing_backend_fails_loud(
@@ -367,7 +415,7 @@ def test_transcribe_midstream_failure_fails_loud(
             pass
 
         def transcribe(
-            self, audio_path: str, language: str | None = None
+            self, audio_path: str, language: str | None = None, **kwargs: Any
         ) -> tuple[Iterator[_FakeRawSegment], _FakeInfo]:
             return _raising_stream(), _FakeInfo()
 
@@ -390,7 +438,7 @@ def test_transcribe_no_speech_empty_info(tmp_path: Path, monkeypatch: pytest.Mon
             pass
 
         def transcribe(
-            self, audio_path: str, language: str | None = None
+            self, audio_path: str, language: str | None = None, **kwargs: Any
         ) -> tuple[Iterator[_FakeRawSegment], _EmptyInfo]:
             return iter([]), _EmptyInfo()
 

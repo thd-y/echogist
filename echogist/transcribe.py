@@ -67,12 +67,14 @@ class Transcript:
 
     ``language`` is the detected (autolang) code, ``duration`` the audio length in
     seconds (for progress + the §12.3 realtime_factor), ``segments`` the ordered
-    timecoded text.
+    timecoded text. ``language_probability`` is Whisper's confidence in ``language``
+    (1.0 when the backend does not report one).
     """
 
     language: str
     duration: float
     segments: tuple[Segment, ...]
+    language_probability: float = 1.0
 
     @property
     def text(self) -> str:
@@ -209,6 +211,10 @@ def _collect_segments(
 # --------------------------------------------------------------------------- #
 # GPU adapter (lazy import; covered by the §12.3 real-GPU smoke, not unit tests)
 # --------------------------------------------------------------------------- #
+# Below this, Whisper's language pick is a guess (faster-whisper's own detection threshold).
+LOW_LANGUAGE_CONFIDENCE = 0.5
+
+
 def transcribe(
     audio_path: Path,
     model_dir: Path,
@@ -225,7 +231,9 @@ def transcribe(
     importing ``faster_whisper``, loads the model at ``compute_type`` (default
     ``int8_float16`` — int8 speed/VRAM on the full large-v3, plan §6 / TD-4), and
     streams segments into a pure :class:`Transcript`. ``language=None`` lets Whisper
-    auto-detect (autolang RU/EN). The detected language + duration are logged once,
+    auto-detect (autolang RU/EN). VAD is on, so detection runs on speech, not on an opening
+    silence that reads as English and gets the whole file translated (TD-43); it also drops
+    the silence hallucinations. The detected language + duration are logged once,
     before the loop; per-segment progress goes through the optional ``progress`` callback
     (plan §5 — the %/ETA bar replaces the old per-segment log spam). Any load/transcribe
     failure becomes a recoverable :class:`TranscribeError`.
@@ -251,14 +259,19 @@ def transcribe(
         raise TranscribeError(gpu.diagnose_import_error(exc)) from exc
 
     try:
-        segment_stream, info = model.transcribe(str(audio_path), language=language)
+        segment_stream, info = model.transcribe(str(audio_path), language=language, vad_filter=True)
         total = float(getattr(info, "duration", 0.0) or 0.0)
         detected = str(getattr(info, "language", "") or "")
-        log(f"Detected language: {detected or 'unknown'}; audio {format_timecode(total)}.")
+        raw_p = getattr(info, "language_probability", None)
+        probability = float(raw_p) if raw_p is not None else 1.0
+        shown_p = f" (p={probability:.2f})" if raw_p is not None else ""
+        log(f"Detected language: {detected or 'unknown'}{shown_p}; audio {format_timecode(total)}.")
         segments = _collect_segments(segment_stream, total, progress)
     except TranscribeError:
         raise
     except Exception as exc:  # noqa: BLE001 - fail loud, return to menu
         raise TranscribeError(f"Transcription failed: {exc}.") from exc
 
-    return Transcript(language=detected, duration=total, segments=segments)
+    return Transcript(
+        language=detected, duration=total, segments=segments, language_probability=probability
+    )
