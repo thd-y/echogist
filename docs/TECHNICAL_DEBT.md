@@ -50,115 +50,6 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   calls per affected file. **Trigger: a folder total that visibly disagrees with the Anthropic
   console, or the next change to `on_cost` / `_report_run`.**
 
-- **TD-43 — findings of the first other-author folder run** · item severity below · created
-  2026-10-27. Source: `output/logs/2026-10-26-114435.log` — 36 RU lectures by several authors
-  (not the `КУРС2025` speaker), 59h03m, `economy`, auto-accept any cost, MD. 117 calls, 0
-  failures, quoted $0.4614, spent $0.2401 (1.92x), 22 min of summarizing after ~8h15m of
-  transcription.
-  1. **The run is only a partial TD-40 economy measurement** · LOW. Totals: 1,071,424 input +
-     265,888 output = **0.2482** (per file 0.163-0.388; the two highest are the 33- and 23-min
-     `32 airflow` / `32 Демо`). The sample is contaminated by item 3: 28 of 36 inputs were
-     Whisper's ENGLISH translation, which is fewer tokens than the Russian it replaced. The 8
-     clean RU files alone: 262,257 in + 58,893 out = **0.2246**; the EN-input 28: 0.2558. So
-     0.25 is a ceiling for RU input, not a floor, and seeding from it stays biased high. Input
-     leg: estimated 1,279,865 vs 1,071,424 billed = 1.19x over, but on mostly-Latin text, so
-     TD-40 (2) (Haiku 5.5's ~30% longer count of Cyrillic) is still unmeasured for RU. Quality
-     signal, not price: `Reconcile returned no usable phase-heading outline` on **17 of 36**
-     reconciles (the phase headings are kept; nothing is lost but the merged outline) — no
-     balanced log is left to compare against. **Fix:** re-seed economy's `output_per_input_ratio`
-     0.52 -> ~0.40 (over the highest single file, the balanced precedent) after one clean RU
-     re-run (item 3 fixed) confirms the RU number and the input leg; investigate the 17
-     outline misses before economy is recommended. *Debugged 2026-10-27:* the misses track K —
-     16 of 25 two-phase files vs 1 of 11 with K>=3. The prompt never states K ("as many
-     headings as there are phases"; phases arrive as `[Phase i] heading`), and the reply's
-     `phase_headings` is persisted nowhere (`raw/*.json` drops it), so WHICH shape fails
-     (wrong count vs empty strings) is unknown. Next evidence: log `len(cleaned)` vs K in
-     `_apply_normalized_headings`, or one paid reconcile replay (~$0.002) on a K=2 file.
-     *Fix landed 2026-10-27 (branch `fix/td-43-language-outline`):* the reconcile user message
-     now states K, and a miss logs `n heading(s) for K phases (e empty)`. Awaiting the re-run.
-  2. **Single-speaker calibration, first test on other speakers** · MEDIUM. Constants tuned on
-     ONE speaker: `max_loop_coverage` 0.50, scan `words_per_minute` 135 x `chars_per_word` 6.5,
-     `phase_target_tokens`, both output ratios. Observed: real speech here is **103 wpm** over
-     the whole duration (366,273 words / 59h; `26 .mp4` is 2,757 words in 1h30m — long silences,
-     webinar wait-time), so the duration projection runs ~1.3x higher than for `КУРС2025` on top
-     of its own bias. The loop filter held: it dropped the silence hallucinations
-     `Продолжение следует...` (6-15 per RU file) and `. . .` (up to 78 per file), no real block
-     visibly lost — not audited. Not caught: the EN files' intro `you you` blocks (1 of 5 dropped
-     in `06 ML`) and in-sentence 3-4x phrase repeats (`so good evening` x4) that sit below the
-     block-level threshold. **Fix:** none to the constants yet; audit a sample of dropped and
-     kept blocks once item 3 is fixed, since the EN translation distorts both. *Debugged
-     2026-10-27:* the clean RU files alone run 86-103 wpm (`01` 9,905 words / 115 min), so the
-     slower pace is the speakers and their pauses, not the translation. The `you you` minutes
-     survive because a 2-word block has no 3-gram (coverage 0) and `min_block_words` only
-     applies next to a detected loop — by design; VAD (item 3) would remove them upstream.
-  3. **Whisper auto-detected `en` on 28 of 36 Russian recordings and TRANSLATED them** · HIGH
-     (the transcript is ground truth, and these are a lossy machine translation of it).
-     `transcribe.transcribe` passes `language=None`, so faster-whisper 1.2.1 decides from the
-     FIRST 30 s window only (`language_detection_segments=1`, no VAD). Files 01-05 open with a
-     Russian voice-over ad and detected `ru`; 06+ open with minutes of silence (webinar waiting
-     room) — `06 ML` reads `you you` for 00:00-00:04 — and silence detects as `en`. With the
-     `<|en|>` token forced for the whole file, large-v3 writes English for Russian speech, with
-     Russian leaking back in places: Cyrillic share of letters 0-40% per `en` file. The summaries
-     came out in Russian (`summary_language`), so the damage is hidden. The config has no
-     transcription-language setting; "autolang RU/EN" was the design. **Fix direction (needs a
-     decision):** a `transcription_language` setting (`auto` | `ru` | `en`, default `ru` for
-     this operator), and/or detection over VAD-filtered speech / several windows; plus a loud
-     notice when the detected language differs from `summary_language`. Then re-transcribe the
-     28 files (needs a forced re-transcribe — the fingerprint reuse would keep the EN ones).
-     *Debugged 2026-10-27:* the opening predicts the label 36/36 — all 8 `ru` files open with
-     speech, all 28 `en` files with silence hallucinations (`you you` / `. .`). Reproduced on
-     the real `06 ML .mp4` with the app's model: default `detect_language` -> `en` at p=0.31
-     (below the 0.5 threshold, i.e. a guess); `language_detection_segments=4` -> still `en`
-     0.31 (the first 2 min are silence too); `vad_filter=True` -> **`ru` 1.00**. VAD is
-     therefore the root-cause fix for detection and would also drop the silence
-     hallucinations; it changes segmentation, so it needs its own GPU smoke. The probability
-     (`info.language_probability`) is available and not logged — a cheap low-confidence notice.
-     *Fix landed 2026-10-27 (branch `fix/td-43-language-outline`):* `vad_filter=True`; the
-     probability is logged; a warning fires below p=0.5 or when the detected language is not
-     `summary_language`. Real-GPU check on the first 8 min of `06 ML`: `ru (p=1.00)`, Russian
-     text, no `you you`. Open for the re-run: the first segment spans 223.6-338.7 s, so verify
-     the opening timecodes against the recording, and listen for quiet speech (audience
-     questions) that VAD's library defaults (2 s min silence, 400 ms pad, hard-coded) may cut —
-     if it does, make VAD a `[transcript]` config key. Reused transcripts get neither VAD nor
-     the warning: a re-transcribe stays manual (delete the saved transcript, re-run).
-  4. **The balanced projection ($14.40 for this folder) is ~2x high** · LOW. It is the scan's
-     duration projection, not a quote: 135 wpm x 6.5 chars at the Cyrillic token rate, x 0.33,
-     at $2 / $10. Back-of-envelope from this run's real tokens: ~1.07-1.28M input x $2 + 0.30-0.33
-     output ratio x $10 = **~$5-7** on these (EN-contaminated) transcripts; after an RU
-     re-transcription the input grows, so expect ~$7-9. The exact quote (from the transcripts)
-     is what to trust. *Debugged 2026-10-27:* the exact balanced quote from these transcripts
-     would be ~$6.8 (the local input estimate, 1,279,865, is tier-independent; 0.33 x that at
-     $10 + input at $2), so the projection runs 2.1x the quote. Two factors: projected chars
-     3.11M (59.05h x 135 wpm x 6.5) vs 2.07M real = 1.5x; and the Cyrillic token rate applied
-     to mostly-Latin (EN-translated) text, ~1.4x more. The second goes away with item 3, which
-     leaves ~1.5x — what the projection's note promises. **Fix:** none (biased high is the
-     contract); re-check after the RU re-transcription.
-  5. **Lecture numbers look duplicated in the summary file names** · CLOSED 2026-10-27, no
-     action: the operator renamed the files by hand, not knowing the number came from the
-     video's name. NOT an EchoGist naming bug. EchoGist wrote `2026-10-26-<source stem>-<title>.md`
-     (log, every `Rendering MD` line). The `.md` files now on disk were renamed at 22:34, after
-     the run (20:21): the date prefix was replaced by a 01-36 counter, so `06 ML.mp4` is now
-     `07 ML-...md` — the counter and the source's own lecture number disagree from the 4th
-     file on, because the course numbers itself with repeats (`03 1`/`03 2`, two `26`, three
-     `32`) and one unnumbered `25`/`26`. `raw/*.json` kept the original names, so the `.md`
-     and its JSON no longer share a stem; the skip index reads `raw/`, so a re-run does not
-     re-pay. The document BODY carries no lecture number at all. *Debugged 2026-10-27:* no
-     EchoGist session ran after 20:23 (the only log of the day ends there), the `.md` mtimes
-     are the render times (a rename keeps them), the parent dir's is 22:34, and no code writes
-     a counter prefix — the rename is external (confirmed by the operator).
-  **Re-run 2026-10-27** (`output/logs/2026-10-27-070636.log`, VAD build, `economy`, `06 ML` +
-  `13 Переобучение моделей`): both `ru (p=1.00)`, Russian text, no silence-hallucination
-  skips (one real `если если ...` loop dropped), every anchor exact (148 + 146). Billed
-  47,415 + 9,584 and 37,559 + 8,691 = 0.215; quote 2.5x / 2.4x the bill. The RU transcripts
-  are longer, so K went 2 -> 4 and 2 -> 3: the K=2 outline fix is NOT yet exercised; neither
-  file missed. Item 1: ratio re-seeded 0.40 (`config/models.toml`); outline — the new log
-  line names the shape if a K=2 miss recurs. Item 2: closed, the filter behaved; no constant
-  changes. Item 4: closed, no fix (the projection stays above the quote). Side note, not a
-  bug: the course's `12`/`13` files carry each other's content (both runs agree).
-  **Open: item 3's opening timecode** — the first VAD segment puts `Добрый вечер` at
-  `[00:03:43]`, where the old EN transcript had it in the `[00:05:00]` block; the operator
-  checks the recording. **Trigger: that check; then close TD-43.**
-
 The registry was fully closed on 2026-08-03 (TD-9 and TD-17 implemented, TD-7 and TD-20 WONTFIX,
 branch `chore/close-tech-debt`); TD-22 through TD-28 are the entries since, and all of them are now
 closed: TD-22, TD-25 and TD-26 on 2026-09-04, TD-23/TD-24 the day after the first full folder
@@ -176,7 +67,7 @@ TD-27's artifact-format breaks, which is what it exists for, and none of the thr
 against v2.3.0: TD-35 was a stale constant that predates it, and TD-34 and TD-36 are pre-existing
 gaps that this run's own new `notice` lines are what made visible. All three were answered the next
 day, 2026-09-06 (`601c270`), before the next paid run: TD-34 and TD-35 closed, TD-36's first half
-with them. **Open now: TD-37, TD-38, TD-40, TD-41 (LOW) and TD-43 (mixed, item 3 HIGH)** — TD-36 and TD-39 closed 2026-10-10; TD-30 and TD-29b
+with them. **Open now: TD-37, TD-38, TD-40 and TD-41 (LOW)** — TD-43 opened and closed 2026-10-27; TD-36 and TD-39 closed 2026-10-10; TD-30 and TD-29b
 closed 2026-09-06, the registry's two LOW entries answered the same day as its two HIGH ones;
 TD-29c closed 2026-09-24 and CI opened TD-37 and TD-38 the same day.
 
@@ -197,6 +88,20 @@ whether it is a real item.
 
 ## Closed debts (compact — verbose history in git)
 
+- **TD-43 — findings of the first other-author folder run** · HIGH (item 3) · closed 2026-10-27
+  (branch `fix/td-43-language-outline`). Source: the 36-file, 59h `economy` run of 2026-10-26.
+  (3) faster-whisper detected the language on the first 30 s; 28 webinar recordings open in
+  silence, detected `en`, and were TRANSLATED — fixed with `vad_filter=True` (06 ML: en p=0.31
+  -> ru p=1.00), the probability logged, a warning below p=0.5 or on a language other than
+  `summary_language`; the opening timecode (`[00:03:43]`) checked against the recording by the
+  operator. Old EN transcripts are reused by fingerprint: a re-transcribe stays manual. VAD
+  runs on library defaults, hard-coded — make it a `[transcript]` key if quiet speech is ever
+  found cut. (1) economy re-seeded 0.52 -> 0.40 from 10 clean RU lectures (0.215-0.225; TD-40);
+  17/36 reconcile outline misses tracked K=2 — the request now states K and a miss logs the
+  reply's shape, but the RU re-run split into K=3/4, so the K=2 case is not yet exercised.
+  (2) single-speaker constants held on other speakers (86-103 wpm, filter caught only real
+  loops after VAD); no change. (4) the $14.40 balanced projection ran 2.1x the quote, half
+  of it the EN text; no fix. (5) duplicated lecture numbers were the operator's manual rename.
 - **TD-42 — leftovers of the 2026-10-26 audit** · LOW · closed 2026-10-26 (branch
   `fix/audit-1-4`). Fixed: `render` keeps a passed `base` verbatim (sanitized, never re-capped),
   so the triplet no longer splits; the shortest name is the original of a copy set, and the copy
