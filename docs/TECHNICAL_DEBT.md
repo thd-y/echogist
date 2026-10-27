@@ -38,6 +38,9 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   room. **Trigger:** the first real run on each tier — re-seed its ratio from the "Actual cost"
   line (output/input, +~5%); if economy's input leg is visibly low, add a per-tier token factor.
   A max_tokens failure on flagship means raise the cap or lower its effort.
+  **Economy half answered 2026-10-27 (TD-43):** (1) measured 0.215-0.225 on clean RU, re-seeded
+  0.52 -> 0.40; (2) refuted — the local estimate ran 1.40-1.44x OVER Haiku 5.5's billed RU
+  input, no per-tier factor needed. Still open: (3) the >100K card, and (4) flagship.
 
 - **TD-41 — a phase that comes back empty is paid for and reported nowhere** · LOW · created
   2026-10-26. `on_cost` fires only when a file lands, so the call whose phase came back empty
@@ -143,8 +146,18 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
      EchoGist session ran after 20:23 (the only log of the day ends there), the `.md` mtimes
      are the render times (a rename keeps them), the parent dir's is 22:34, and no code writes
      a counter prefix — the rename is external (confirmed by the operator).
-  **Trigger: item 3 before the next paid run on non-`КУРС2025` material; items 1/2 on the RU
-  re-run that follows it.**
+  **Re-run 2026-10-27** (`output/logs/2026-10-27-070636.log`, VAD build, `economy`, `06 ML` +
+  `13 Переобучение моделей`): both `ru (p=1.00)`, Russian text, no silence-hallucination
+  skips (one real `если если ...` loop dropped), every anchor exact (148 + 146). Billed
+  47,415 + 9,584 and 37,559 + 8,691 = 0.215; quote 2.5x / 2.4x the bill. The RU transcripts
+  are longer, so K went 2 -> 4 and 2 -> 3: the K=2 outline fix is NOT yet exercised; neither
+  file missed. Item 1: ratio re-seeded 0.40 (`config/models.toml`); outline — the new log
+  line names the shape if a K=2 miss recurs. Item 2: closed, the filter behaved; no constant
+  changes. Item 4: closed, no fix (the projection stays above the quote). Side note, not a
+  bug: the course's `12`/`13` files carry each other's content (both runs agree).
+  **Open: item 3's opening timecode** — the first VAD segment puts `Добрый вечер` at
+  `[00:03:43]`, where the old EN transcript had it in the `[00:05:00]` block; the operator
+  checks the recording. **Trigger: that check; then close TD-43.**
 
 The registry was fully closed on 2026-08-03 (TD-9 and TD-17 implemented, TD-7 and TD-20 WONTFIX,
 branch `chore/close-tech-debt`); TD-22 through TD-28 are the entries since, and all of them are now
