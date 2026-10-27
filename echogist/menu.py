@@ -645,6 +645,24 @@ def _run_summary_with_retry(
         attempt(None)
 
 
+def _warn_on_language(ui: UI, transcript: transcribe.Transcript, summary_language: str) -> None:
+    """TD-43: a wrong detection makes Whisper TRANSLATE the whole file, and the summary
+    (written in ``summary_language`` either way) hides it. Informational, never blocking:
+    an English lecture summarized in Russian on purpose is legitimate."""
+    lang, p = transcript.language, transcript.language_probability
+    if p < transcribe.LOW_LANGUAGE_CONFIDENCE:
+        ui.warn(
+            f"Language detection is unsure ({lang}, p={p:.2f}) — check the transcript "
+            "before trusting the summary."
+        )
+    if lang and lang != summary_language:
+        ui.warn(
+            f"Detected language '{lang}' differs from the summary language "
+            f"'{summary_language}' — if the recording is in '{summary_language}', the "
+            "transcript may be a translation."
+        )
+
+
 def _transcribe_to_checkpoint(
     deps: Deps, source: Path, model_config: config.ModelConfig, *, fingerprint: str
 ) -> tuple[Path, str]:
@@ -663,6 +681,7 @@ def _transcribe_to_checkpoint(
         bar.done()
     if transcript.duration <= 0 and transcript.segments:  # T8: no-ETA readout
         ui.info(f"{len(transcript.segments)} segments transcribed (duration unknown).")
+    _warn_on_language(ui, transcript, config.load_settings(deps.settings_path).summary_language)
     tpath = transcribe.save_transcript(
         transcript,
         paths.transcripts(deps.base),

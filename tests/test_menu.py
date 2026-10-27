@@ -80,6 +80,7 @@ def _make_deps(
     extract_error: bool = False,
     extract_oserror: bool = False,
     convert_many: Any = None,
+    transcript: Transcript | None = None,
 ) -> tuple[menu.Deps, StubUI, dict[str, int]]:
     calls: dict[str, int] = {"extract": 0, "transcribe": 0, "summarize": 0, "render": 0}
 
@@ -101,7 +102,7 @@ def _make_deps(
 
     def transcribe(source: Path, model_dir: Path, *, log: Any = print, **_kw: Any) -> Transcript:
         calls["transcribe"] += 1
-        return _transcript()
+        return transcript or _transcript()
 
     def summarize(
         text: str,
@@ -269,6 +270,45 @@ def test_local_file_transcript_keeps_mp3_and_skips_summarize(tmp_path: Path) -> 
     reveals = [m for m in stub.messages if m[0] == "reveal_dir"]
     assert len(reveals) == 1
     assert reveals[0][1].endswith("transcripts")
+
+
+def _transcribe_only_warnings(tmp_path: Path, transcript: Transcript) -> list[str]:
+    src = tmp_path / "clip.wav"
+    src.write_bytes(b"x")
+    deps, stub, calls = _make_deps(
+        tmp_path, ["single", "file", str(src), "transcript", True, "exit"], transcript=transcript
+    )
+    assert menu.run_menu(deps) == 0
+    assert list((tmp_path / "output" / "transcripts").glob("*.txt"))  # the run went on
+    return [text for level, text in stub.messages if level == "warn"]
+
+
+def _detected(language: str, probability: float) -> Transcript:
+    return Transcript(
+        language=language,
+        duration=1.0,
+        segments=(Segment(0.0, 1.0, "hello"),),
+        language_probability=probability,
+    )
+
+
+def test_a_confident_matching_language_is_silent(tmp_path: Path) -> None:
+    assert _transcribe_only_warnings(tmp_path, _detected("ru", 0.99)) == []
+
+
+def test_an_unsure_detection_warns(tmp_path: Path) -> None:
+    # TD-43: 06 ML detected en at p=0.31 on its opening silence and was translated.
+    assert _transcribe_only_warnings(tmp_path, _detected("ru", 0.31)) == [
+        "Language detection is unsure (ru, p=0.31) — check the transcript before trusting "
+        "the summary."
+    ]
+
+
+def test_a_language_other_than_the_summary_language_warns(tmp_path: Path) -> None:
+    assert _transcribe_only_warnings(tmp_path, _detected("en", 0.99)) == [
+        "Detected language 'en' differs from the summary language 'ru' — if the recording "
+        "is in 'ru', the transcript may be a translation."
+    ]
 
 
 def test_mp3_source_summary(tmp_path: Path) -> None:
