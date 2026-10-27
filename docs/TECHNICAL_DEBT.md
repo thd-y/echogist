@@ -71,6 +71,8 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
      `phase_headings` is persisted nowhere (`raw/*.json` drops it), so WHICH shape fails
      (wrong count vs empty strings) is unknown. Next evidence: log `len(cleaned)` vs K in
      `_apply_normalized_headings`, or one paid reconcile replay (~$0.002) on a K=2 file.
+     *Fix landed 2026-10-27 (branch `fix/td-43-language-outline`):* the reconcile user message
+     now states K, and a miss logs `n heading(s) for K phases (e empty)`. Awaiting the re-run.
   2. **Single-speaker calibration, first test on other speakers** · MEDIUM. Constants tuned on
      ONE speaker: `max_loop_coverage` 0.50, scan `words_per_minute` 135 x `chars_per_word` 6.5,
      `phase_target_tokens`, both output ratios. Observed: real speech here is **103 wpm** over
@@ -108,6 +110,11 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
      therefore the root-cause fix for detection and would also drop the silence
      hallucinations; it changes segmentation, so it needs its own GPU smoke. The probability
      (`info.language_probability`) is available and not logged — a cheap low-confidence notice.
+     *Fix landed 2026-10-27 (branch `fix/td-43-language-outline`):* `vad_filter=True`; the
+     probability is logged; a warning fires below p=0.5 or when the detected language is not
+     `summary_language`. Real-GPU check on the first 8 min of `06 ML`: `ru (p=1.00)`, Russian
+     text, no `you you`. Open for the re-run: the first segment spans 223.6-338.7 s, so verify
+     the opening timecodes against the recording.
   4. **The balanced projection ($14.40 for this folder) is ~2x high** · LOW. It is the scan's
      duration projection, not a quote: 135 wpm x 6.5 chars at the Cyrillic token rate, x 0.33,
      at $2 / $10. Back-of-envelope from this run's real tokens: ~1.07-1.28M input x $2 + 0.30-0.33
