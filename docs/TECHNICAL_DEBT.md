@@ -114,7 +114,10 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
      probability is logged; a warning fires below p=0.5 or when the detected language is not
      `summary_language`. Real-GPU check on the first 8 min of `06 ML`: `ru (p=1.00)`, Russian
      text, no `you you`. Open for the re-run: the first segment spans 223.6-338.7 s, so verify
-     the opening timecodes against the recording.
+     the opening timecodes against the recording, and listen for quiet speech (audience
+     questions) that VAD's library defaults (2 s min silence, 400 ms pad, hard-coded) may cut —
+     if it does, make VAD a `[transcript]` config key. Reused transcripts get neither VAD nor
+     the warning: a re-transcribe stays manual (delete the saved transcript, re-run).
   4. **The balanced projection ($14.40 for this folder) is ~2x high** · LOW. It is the scan's
      duration projection, not a quote: 135 wpm x 6.5 chars at the Cyrillic token rate, x 0.33,
      at $2 / $10. Back-of-envelope from this run's real tokens: ~1.07-1.28M input x $2 + 0.30-0.33

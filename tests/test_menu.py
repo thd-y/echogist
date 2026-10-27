@@ -272,12 +272,15 @@ def test_local_file_transcript_keeps_mp3_and_skips_summarize(tmp_path: Path) -> 
     assert reveals[0][1].endswith("transcripts")
 
 
-def _transcribe_only_warnings(tmp_path: Path, transcript: Transcript) -> list[str]:
+def _transcribe_only_warnings(
+    tmp_path: Path, transcript: Transcript, action: str = "transcript"
+) -> list[str]:
     src = tmp_path / "clip.wav"
     src.write_bytes(b"x")
-    deps, stub, calls = _make_deps(
-        tmp_path, ["single", "file", str(src), "transcript", True, "exit"], transcript=transcript
-    )
+    answers = ["single", "file", str(src), action, True, "exit"]
+    if action == "summary":
+        answers = ["single", "file", str(src), "summary", "exit"]
+    deps, stub, calls = _make_deps(tmp_path, answers, transcript=transcript)
     assert menu.run_menu(deps) == 0
     assert list((tmp_path / "output" / "transcripts").glob("*.txt"))  # the run went on
     return [text for level, text in stub.messages if level == "warn"]
@@ -305,10 +308,32 @@ def test_an_unsure_detection_warns(tmp_path: Path) -> None:
 
 
 def test_a_language_other_than_the_summary_language_warns(tmp_path: Path) -> None:
-    assert _transcribe_only_warnings(tmp_path, _detected("en", 0.99)) == [
+    warns = _transcribe_only_warnings(tmp_path, _detected("en", 0.99), action="summary")
+    assert [w for w in warns if w.startswith("Detected language")] == [
         "Detected language 'en' differs from the summary language 'ru' — if the recording "
         "is in 'ru', the transcript may be a translation."
     ]
+
+
+def test_a_transcript_only_run_has_no_summary_language_to_mismatch(tmp_path: Path) -> None:
+    # Review: with no summary there is no "summary language", so an English transcript
+    # made on purpose is not an alarm.
+    assert _transcribe_only_warnings(tmp_path, _detected("en", 0.99)) == []
+
+
+def test_a_settings_file_broken_mid_run_does_not_lose_the_transcript(tmp_path: Path) -> None:
+    # Review: re-reading settings.json inside the transcribe step raised ConfigError AFTER
+    # the GPU work and BEFORE the save; the caller passes the language it already holds.
+    src = tmp_path / "clip.wav"
+    src.write_bytes(b"x")
+    deps, _stub, _calls = _make_deps(tmp_path, [], transcript=_detected("ru", 0.99))
+    assert deps.settings_path is not None
+    deps.settings_path.parent.mkdir(parents=True, exist_ok=True)
+    deps.settings_path.write_text("{not json", encoding="utf-8")
+    path, _text = menu._transcribe_to_checkpoint(
+        deps, src, config.load_model_config(), fingerprint="0" * 16, summary_language="ru"
+    )
+    assert path.is_file()
 
 
 def test_mp3_source_summary(tmp_path: Path) -> None:

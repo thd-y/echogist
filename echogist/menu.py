@@ -645,17 +645,20 @@ def _run_summary_with_retry(
         attempt(None)
 
 
-def _warn_on_language(ui: UI, transcript: transcribe.Transcript, summary_language: str) -> None:
+def _warn_on_language(
+    ui: UI, transcript: transcribe.Transcript, summary_language: str | None
+) -> None:
     """TD-43: a wrong detection makes Whisper TRANSLATE the whole file, and the summary
     (written in ``summary_language`` either way) hides it. Informational, never blocking:
-    an English lecture summarized in Russian on purpose is legitimate."""
+    an English lecture summarized in Russian on purpose is legitimate. ``None`` = no summary
+    follows (transcript-only), so there is nothing to mismatch."""
     lang, p = transcript.language, transcript.language_probability
     if p < transcribe.LOW_LANGUAGE_CONFIDENCE:
         ui.warn(
             f"Language detection is unsure ({lang}, p={p:.2f}) — check the transcript "
             "before trusting the summary."
         )
-    if lang and lang != summary_language:
+    if summary_language is not None and lang and lang != summary_language:
         ui.warn(
             f"Detected language '{lang}' differs from the summary language "
             f"'{summary_language}' — if the recording is in '{summary_language}', the "
@@ -664,7 +667,12 @@ def _warn_on_language(ui: UI, transcript: transcribe.Transcript, summary_languag
 
 
 def _transcribe_to_checkpoint(
-    deps: Deps, source: Path, model_config: config.ModelConfig, *, fingerprint: str
+    deps: Deps,
+    source: Path,
+    model_config: config.ModelConfig,
+    *,
+    fingerprint: str,
+    summary_language: str | None,
 ) -> tuple[Path, str]:
     """Run TRANSCRIBE behind a %/ETA progress bar, save the checkpoint, return it.
 
@@ -681,7 +689,7 @@ def _transcribe_to_checkpoint(
         bar.done()
     if transcript.duration <= 0 and transcript.segments:  # T8: no-ETA readout
         ui.info(f"{len(transcript.segments)} segments transcribed (duration unknown).")
-    _warn_on_language(ui, transcript, config.load_settings(deps.settings_path).summary_language)
+    _warn_on_language(ui, transcript, summary_language)
     tpath = transcribe.save_transcript(
         transcript,
         paths.transcripts(deps.base),
@@ -849,7 +857,13 @@ def _flow_local_file(deps: Deps) -> None:
         # folder run, and a transcript with no identity can never be reused at all.
         ui.error(f"Could not read {source.name} to identify it: {exc.strerror or exc}.")
         return
-    _, text = _transcribe_to_checkpoint(deps, source, model_config, fingerprint=fingerprint)
+    _, text = _transcribe_to_checkpoint(
+        deps,
+        source,
+        model_config,
+        fingerprint=fingerprint,
+        summary_language=None if action == "transcript" else settings.summary_language,
+    )
     if action == "transcript":  # transcript only — the checkpoint is the deliverable
         # TD-12 (Issue 2): reveal the transcripts folder here, in the transcript branch ONLY
         # — never in _transcribe_to_checkpoint, which also runs on the Summary path (that was
@@ -1236,6 +1250,7 @@ def _run_transcript_texts(
     fingerprints: Mapping[Path, str],
     *,
     keep_mp3: bool = False,
+    summary_language: str | None = None,
 ) -> tuple[dict[Path, str], FolderReport]:
     """Phase 1 — every source that needs one gets a saved transcript. Local, free.
 
@@ -1275,7 +1290,11 @@ def _run_transcript_texts(
         # the mapping covers all of them. A missing key here would mean the plan and the
         # scan disagree, which is a bug to see, not to paper over with an unnamed artifact.
         path, text = _transcribe_to_checkpoint(
-            deps, source, model_config, fingerprint=fingerprints[source]
+            deps,
+            source,
+            model_config,
+            fingerprint=fingerprints[source],
+            summary_language=summary_language,
         )
         texts[source] = text
         return path
@@ -1398,7 +1417,13 @@ def _flow_run(deps: Deps, root: Path | None = None, *, summarize_after: bool = T
     # Phase 1 — local, free, the long one.
     try:
         with_text, transcribed = _run_transcript_texts(
-            deps, ui, plan, model_config, fingerprints, keep_mp3=keep_mp3
+            deps,
+            ui,
+            plan,
+            model_config,
+            fingerprints,
+            keep_mp3=keep_mp3,
+            summary_language=settings.summary_language if summarize_after else None,
         )
     except FolderCancelled as exc:
         _report_run(ui, exc.report, stage="Transcribed", cancelled=True)
