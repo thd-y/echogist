@@ -33,7 +33,11 @@
 # RECIPE, and it needs no code and no transcript: take a finished run's own
 # "Actual cost: $X (A input + B output tokens)" line, compute B / A, add ~5%. That is
 # it. For a folder run use the run's TOTAL, which is the strongest sample you can get.
-# Biased high on purpose: the estimate must stay above the bill (CLAUDE.md).
+# Biased high on purpose: the estimate must stay above the bill (CLAUDE.md). The TARGET
+# (operator, 2026-10-27) is the FOLDER total within ±15%, not every single file over —
+# and B / A alone already quotes ~1.15x, because the reconcile term adds its own margin,
+# so do NOT add more. Fitting the ratio by re-running the estimator over billed
+# transcripts (TD-43) is the precise version.
 
 [tiers.economy]
 # TD-39 (2026-10-10): claude-haiku-5-5, moved WITHOUT a paid measurement (operator's call).
@@ -50,10 +54,14 @@ thinking = "disabled"
 effort = "high"
 # MEASURED on Haiku 5.5, 2026-10-26/27 (TD-40/TD-43): 10 clean RU lectures, 0.2246 over 8
 # files of the 36-file run (262,257 in / 58,893 out) and 0.215 on the VAD re-run of two
-# (84,974 / 18,275); per file 0.163-0.388, the top two the 23- and 33-min clips. Seeded at
-# 0.40, over the highest single file (the balanced precedent), not B/A + 5% (0.24). The
-# feared input leg is not low: the local estimate ran 1.40-1.44x OVER the billed RU input.
-output_per_input_ratio = 0.40
+# (84,974 / 18,275); per file 0.163-0.388, the top two the 23- and 33-min clips. FITTED,
+# not B/A + 5%: the operator wants the FOLDER total within ±15% (2026-10-27), not every
+# file over. Re-running the estimator over those 10 transcripts against their bills: 0.40
+# quoted 1.84x, 0.20 quotes 1.13x with the worst single file at 0.90x. B/A itself lands
+# ~1.17x, because the reconcile term (its input = the projected phase outputs, plus a
+# 2,500-token floor) adds its own margin. The phase-input estimate is accurate on Haiku
+# 5.5 (0.92-1.0x of billed input) — no tokenizer factor needed (TD-40 (2)).
+output_per_input_ratio = 0.20
 
 [tiers.balanced]
 # TD-36 (2026-10-10): claude-sonnet-5-5, chosen by the paid replay gate on занятие 2. With

@@ -148,7 +148,7 @@ class ModelTier:
     prices_unverified: bool = False
     # Projected OUTPUT tokens per INPUT token for this tier's model, under the v2
     # synthesis prompt (TD-24). Per-tier because it is a property of the model's
-    # verbosity: Haiku writes ~1.7x the prose Sonnet does over the same material.
+    # verbosity: Haiku 4.5 wrote ~1.7x the prose Sonnet did; Haiku 5.5 writes less.
     # Measured from a finished run's own audited totals — output_tokens / input_tokens
     # off the "Actual cost" line — plus a small margin, so the quote stays above the
     # bill. Optional so a hand-added tier still loads; the default is biased high.

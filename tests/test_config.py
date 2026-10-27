@@ -248,9 +248,10 @@ def test_tier_output_ratio_loads_and_defaults_high() -> None:
     gets it; a hand-added tier that does not is priced as the most verbose model measured,
     never as a cheap one — an under-quote is the failure that spends unagreed money."""
     cfg = load_model_config(REPO_MODELS)
-    # Haiku 5.5 measured on 10 RU lectures, seeded over the highest single file (TD-43).
-    assert cfg.tier("economy").output_per_input_ratio == 0.40
-    assert cfg.tier("balanced").output_per_input_ratio < cfg.tier("economy").output_per_input_ratio
+    # Haiku 5.5 fitted on 10 RU lectures to a folder quote of ~1.13x the bill (TD-43).
+    assert cfg.tier("economy").output_per_input_ratio == 0.20
+    # Haiku 5.5 is no longer the wordier model (0.215 vs Sonnet 5.5's 0.277), so no ordering.
+    assert cfg.tier("balanced").output_per_input_ratio == 0.33
 
 
 def test_shipped_reconcile_floor_loads() -> None:

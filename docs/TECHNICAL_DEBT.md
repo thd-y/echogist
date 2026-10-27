@@ -38,9 +38,12 @@ commit ref, kept in the compact one-liner form below; verbose history lives in g
   room. **Trigger:** the first real run on each tier — re-seed its ratio from the "Actual cost"
   line (output/input, +~5%); if economy's input leg is visibly low, add a per-tier token factor.
   A max_tokens failure on flagship means raise the cap or lower its effort.
-  **Economy half answered 2026-10-27 (TD-43):** (1) measured 0.215-0.225 on clean RU, re-seeded
-  0.52 -> 0.40; (2) refuted — the local estimate ran 1.40-1.44x OVER Haiku 5.5's billed RU
-  input, no per-tier factor needed. Still open: (3) the >100K card, and (4) flagship.
+  **Economy half answered 2026-10-27 (TD-43):** (1) measured 0.215-0.225 on clean RU; FITTED
+  to 0.20 by re-running the estimator over 10 billed RU transcripts — folder quote 1.13x,
+  worst file 0.90x (the operator wants the folder total within ±15%, not every file over;
+  0.52 quoted 2.39x). (2) refuted — the phase-input estimate is 0.92-1.0x of Haiku 5.5's
+  billed input; the quote's ~1.4x input excess was the projected reconcile input, i.e. the
+  ratio again. No tokenizer factor. Still open: (3) the >100K card, and (4) flagship.
 
 - **TD-41 — a phase that comes back empty is paid for and reported nowhere** · LOW · created
   2026-10-26. `on_cost` fires only when a file lands, so the call whose phase came back empty
@@ -96,7 +99,7 @@ whether it is a real item.
   `summary_language`; the opening timecode (`[00:03:43]`) checked against the recording by the
   operator. Old EN transcripts are reused by fingerprint: a re-transcribe stays manual. VAD
   runs on library defaults, hard-coded — make it a `[transcript]` key if quiet speech is ever
-  found cut. (1) economy re-seeded 0.52 -> 0.40 from 10 clean RU lectures (0.215-0.225; TD-40);
+  found cut. (1) economy fitted 0.52 -> 0.20 on 10 billed RU lectures (folder quote 1.13x; TD-40);
   17/36 reconcile outline misses tracked K=2 — the request now states K and a miss logs the
   reply's shape, but the RU re-run split into K=3/4, so the K=2 case is not yet exercised.
   (2) single-speaker constants held on other speakers (86-103 wpm, filter caught only real
