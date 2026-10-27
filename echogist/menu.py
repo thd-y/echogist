@@ -1130,8 +1130,8 @@ def _report_scan(
         ui.table("Folders", scan.folder_rows(result, transcripts))
     ui.table("Totals", scan.totals_rows(result, model_config, tier))
     ui.info(
-        "The dollar figure is a PROJECTION from duration, biased high (~1.5x the bill on "
-        "the one course measured end to end): every file summarized from scratch at the "
+        "The dollar figure is a PROJECTION from duration, biased high (~1.5-1.7x the bill on "
+        "the two courses measured end to end): every file summarized from scratch at the "
         "current tier, nothing already done subtracted. The exact price is quoted from "
         "the real transcripts before anything is paid for."
     )

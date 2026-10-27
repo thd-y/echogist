@@ -57,10 +57,12 @@
   still empty after it.
 - **Cost model** projects output as `ratio x that call's input`. The input leg is near-exact over
   a whole folder (0.9987x) but runs ~1.10x on ONE file, so the output ratio carries most, not all,
-  of the bias. **Re-seed a tier from its own "Actual cost" line: output/input, +~5%.** economy's and
-  flagship's ratios are guesses (`docs/TECHNICAL_DEBT.md` TD-40); balanced's is measured (the
-  evidence sits beside its value in `config/models.toml`). **The duration projection is ~1.5x the bill**
-  (it multiplies the same ratio, so it rose with it). Token estimate: 3 rates by script.
+  of the bias. **Target (operator, 2026-10-27): the FOLDER quote within ±15% of the bill** — not
+  every single file over. Re-seed a tier from its own "Actual cost" line: output/input, NO extra
+  margin (the reconcile term already adds ~15%); fitting the ratio over billed transcripts is the
+  precise version (TD-43). economy's is fitted (0.20 → 1.13x), balanced's measured, flagship's a
+  guess (`docs/TECHNICAL_DEBT.md` TD-40; evidence beside each value in `config/models.toml`).
+  **The duration projection is ~1.5-1.7x the bill** (two courses). Token estimate: 3 rates by script.
 - **Key:** env, then gitignored `config/secrets.toml` — absent in WSL, so paid runs are
   Windows-only. **`/mnt/c/Users/operator/Documents/echogist/output/` reads that tree from here, and
   reading the saved `.json` beats reading the log** — run 3's loudest WARN named the wrong cause.
